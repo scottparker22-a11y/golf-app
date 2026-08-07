@@ -50,6 +50,25 @@ export default function Scorecard({
     setStroke(groupId, playerId, holeNumber, n);
   };
 
+  // Front 9 / back 9 split for the OUT / IN / TOT subtotal columns.
+  const frontHoles = holes.filter(h => h.number <= 9);
+  const backHoles = holes.filter(h => h.number > 9);
+  const hasBack = backHoles.length > 0;
+
+  const sumPar = (hs: Hole[]) => hs.reduce((sum, h) => sum + h.par, 0);
+
+  const sumStrokes = (playerId: string, hs: Hole[]) => {
+    const entered = hs
+      .map(h => scoreFor(playerId, h.number))
+      .filter((s): s is number => s !== undefined);
+    return entered.length ? entered.reduce((sum, s) => sum + s, 0) : undefined;
+  };
+
+  const subtotalHeaderClass =
+    "px-1.5 py-2 text-center font-bold text-[11px] bg-surface-raised border-l border-[color:var(--border-strong)]";
+  const subtotalCellClass =
+    "px-1.5 py-1.5 text-center font-mono font-bold bg-surface-raised border-l border-[color:var(--border-strong)]";
+
   return (
     <div className="px-5 pt-4 pb-8">
       <p className="text-[13px] text-chalk-dim leading-relaxed mb-2">
@@ -72,31 +91,59 @@ export default function Scorecard({
                   <th className="sticky left-0 bg-surface text-left px-2.5 py-2 text-chalk-dim font-semibold text-[11px] uppercase min-w-[68px]">
                     Hole
                   </th>
-                  {holes.map(h => (
+                  {frontHoles.map(h => (
                     <th key={h.number} className="px-1 py-2 text-chalk-dim font-semibold text-center w-[38px]">
                       {h.number}
                     </th>
                   ))}
+                  {hasBack && <th className={subtotalHeaderClass}>OUT</th>}
+                  {backHoles.map(h => (
+                    <th key={h.number} className="px-1 py-2 text-chalk-dim font-semibold text-center w-[38px]">
+                      {h.number}
+                    </th>
+                  ))}
+                  {hasBack && <th className={subtotalHeaderClass}>IN</th>}
+                  <th className={subtotalHeaderClass}>TOT</th>
                 </tr>
                 <tr>
                   <th className="sticky left-0 bg-surface text-left px-2.5 py-1.5 text-chalk-dim font-medium text-[11px]">
                     Par
                   </th>
-                  {holes.map(h => (
+                  {frontHoles.map(h => (
                     <th key={h.number} className="px-1 py-1.5 text-chalk-dim font-mono text-center">
                       {h.par}
                     </th>
                   ))}
+                  {hasBack && (
+                    <th className={subtotalHeaderClass + " font-mono"}>{sumPar(frontHoles)}</th>
+                  )}
+                  {backHoles.map(h => (
+                    <th key={h.number} className="px-1 py-1.5 text-chalk-dim font-mono text-center">
+                      {h.par}
+                    </th>
+                  ))}
+                  {hasBack && (
+                    <th className={subtotalHeaderClass + " font-mono"}>{sumPar(backHoles)}</th>
+                  )}
+                  <th className={subtotalHeaderClass + " font-mono"}>{sumPar(holes)}</th>
                 </tr>
                 <tr>
                   <th className="sticky left-0 bg-surface text-left px-2.5 py-1.5 text-chalk-dim font-medium text-[11px]">
                     Hcp
                   </th>
-                  {holes.map(h => (
+                  {frontHoles.map(h => (
                     <th key={h.number} className="px-1 py-1.5 text-chalk-dim font-mono text-center text-[10px]">
                       {h.strokeIndex}
                     </th>
                   ))}
+                  {hasBack && <th className={subtotalHeaderClass} />}
+                  {backHoles.map(h => (
+                    <th key={h.number} className="px-1 py-1.5 text-chalk-dim font-mono text-center text-[10px]">
+                      {h.strokeIndex}
+                    </th>
+                  ))}
+                  {hasBack && <th className={subtotalHeaderClass} />}
+                  <th className={subtotalHeaderClass} />
                 </tr>
               </thead>
               <tbody>
@@ -104,6 +151,38 @@ export default function Scorecard({
                   const p = players.find(pl => pl.id === playerId);
                   if (!p) return null;
                   const courseHandicap = courseHandicapFor(playerId);
+
+                  const renderHoleCell = (h: Hole) => {
+                    const strokes = scoreFor(playerId, h.number);
+                    const getsStroke = strokesReceived(h, courseHandicap) > 0;
+                    return (
+                      <td key={h.number} className="p-0.5">
+                        <div className="relative">
+                          <input
+                            type="number"
+                            inputMode="numeric"
+                            min={1}
+                            max={15}
+                            value={strokes ?? ""}
+                            onChange={e =>
+                              handleChange(team.id, playerId, h.number, e.target.value)
+                            }
+                            className={`w-[36px] h-[32px] text-center bg-surface-raised border rounded-md font-mono font-semibold outline-none focus:border-turf ${relToParClass(
+                              strokes,
+                              h.par
+                            )} ${getsStroke ? "border-sand" : "border-[color:var(--border-strong)]"}`}
+                          />
+                          {getsStroke && (
+                            <span
+                              title="Handicap stroke"
+                              className="absolute top-[2px] right-[2px] w-[5px] h-[5px] rounded-full bg-sand pointer-events-none"
+                            />
+                          )}
+                        </div>
+                      </td>
+                    );
+                  };
+
                   return (
                     <tr key={playerId} className="border-t border-[color:var(--border)]">
                       <td className="sticky left-0 bg-surface px-2.5 py-1.5 font-semibold text-[12px] whitespace-nowrap">
@@ -112,36 +191,15 @@ export default function Scorecard({
                           ({courseHandicap})
                         </span>
                       </td>
-                      {holes.map(h => {
-                        const strokes = scoreFor(playerId, h.number);
-                        const getsStroke = strokesReceived(h, courseHandicap) > 0;
-                        return (
-                          <td key={h.number} className="p-0.5">
-                            <div className="relative">
-                              <input
-                                type="number"
-                                inputMode="numeric"
-                                min={1}
-                                max={15}
-                                value={strokes ?? ""}
-                                onChange={e =>
-                                  handleChange(team.id, playerId, h.number, e.target.value)
-                                }
-                                className={`w-[36px] h-[32px] text-center bg-surface-raised border rounded-md font-mono font-semibold outline-none focus:border-turf ${relToParClass(
-                                  strokes,
-                                  h.par
-                                )} ${getsStroke ? "border-sand" : "border-[color:var(--border-strong)]"}`}
-                              />
-                              {getsStroke && (
-                                <span
-                                  title="Handicap stroke"
-                                  className="absolute top-[2px] right-[2px] w-[5px] h-[5px] rounded-full bg-sand pointer-events-none"
-                                />
-                              )}
-                            </div>
-                          </td>
-                        );
-                      })}
+                      {frontHoles.map(renderHoleCell)}
+                      {hasBack && (
+                        <td className={subtotalCellClass}>{sumStrokes(playerId, frontHoles) ?? "–"}</td>
+                      )}
+                      {backHoles.map(renderHoleCell)}
+                      {hasBack && (
+                        <td className={subtotalCellClass}>{sumStrokes(playerId, backHoles) ?? "–"}</td>
+                      )}
+                      <td className={subtotalCellClass}>{sumStrokes(playerId, holes) ?? "–"}</td>
                     </tr>
                   );
                 })}
