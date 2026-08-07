@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import type { Player } from "@/lib/types";
 import PlayersStep from "./PlayersStep";
 import TeamsStep from "./TeamsStep";
@@ -18,6 +19,8 @@ const TABS = [
 
 type TabId = (typeof TABS)[number]["id"];
 
+const LAST_TAB: TabId = "rounds";
+
 export default function SetupWizard({ tripId }: { tripId: string }) {
   const [tripName, setTripName] = useState(`Trip ${tripId}`);
   const [tab, setTab] = useState<TabId>("players");
@@ -27,6 +30,9 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
   const [groups, setGroups] = useState<Group[]>([]);
   const [scorekeepers, setScorekeepers] = useState<Record<string, string>>({});
   const [rounds, setRounds] = useState<RoundDraft[]>([]);
+
+  const tabIndex = TABS.findIndex(t => t.id === tab);
+  const isLastTab = tab === LAST_TAB;
 
   return (
     <main className="max-w-[460px] mx-auto min-h-screen pb-10">
@@ -71,6 +77,30 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
         />
       )}
       {tab === "rounds" && <RoundsStep rounds={rounds} setRounds={setRounds} />}
+
+      <div className="px-5 pt-6">
+        {isLastTab ? (
+          <>
+            <Link
+              href={`/trip/${tripId}/leaderboard`}
+              className="block w-full text-center py-3.5 rounded-xl bg-turf text-fairway-950 font-bold text-[15px]"
+            >
+              Finish setup → View scorecard
+            </Link>
+            <p className="text-[11.5px] text-chalk-dim text-center mt-2 leading-relaxed">
+              Heads up: this demo build doesn't save your setup yet, so the scorecard shows
+              sample data rather than what you just entered.
+            </p>
+          </>
+        ) : (
+          <button
+            onClick={() => setTab(TABS[tabIndex + 1].id)}
+            className="w-full py-3.5 rounded-xl bg-turf text-fairway-950 font-bold text-[15px]"
+          >
+            Next: {TABS[tabIndex + 1].label} →
+          </button>
+        )}
+      </div>
     </main>
   );
 }

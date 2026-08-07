@@ -12,6 +12,15 @@ export function strokesReceived(hole: Hole, courseHandicap: number): number {
   return hole.strokeIndex <= courseHandicap ? 1 : 0;
 }
 
+/**
+ * Simple course handicap approximation (rounded handicap index) for use
+ * where a full slope/rating calculation hasn't been wired up yet. Swap
+ * this out once course tee data (slope + rating) is available per round.
+ */
+export function approxCourseHandicap(handicapIndex: number): number {
+  return Math.round(handicapIndex);
+}
+
 export function netScore(strokes: number, hole: Hole, courseHandicap: number): number {
   return strokes - strokesReceived(hole, courseHandicap);
 }

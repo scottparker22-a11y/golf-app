@@ -2,7 +2,12 @@
 
 import { useMemo, useState } from "react";
 import type { Hole, HoleScore, Player } from "@/lib/types";
-import { calculateIndividualLeaderboard, calculateSkins, skinsWonByPlayer } from "@/lib/scoring";
+import {
+  approxCourseHandicap,
+  calculateIndividualLeaderboard,
+  calculateSkins,
+  skinsWonByPlayer,
+} from "@/lib/scoring";
 
 type TeamDef = { id: string; name: string; playerIds: string[] };
 
@@ -24,11 +29,29 @@ export default function Leaderboard({
     [holeScores, players, holes]
   );
 
-  const skinsResults = useMemo(
+  const courseHandicaps = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const p of players) map[p.id] = approxCourseHandicap(p.handicapIndex);
+    return map;
+  }, [players]);
+
+  const grossSkinsResults = useMemo(
     () => calculateSkins(holeScores, players, holes, { usesHandicap: false, carryover: true }, {}),
     [holeScores, players, holes]
   );
-  const skinsByPlayer = useMemo(() => skinsWonByPlayer(skinsResults), [skinsResults]);
+  const netSkinsResults = useMemo(
+    () =>
+      calculateSkins(
+        holeScores,
+        players,
+        holes,
+        { usesHandicap: true, carryover: true },
+        courseHandicaps
+      ),
+    [holeScores, players, holes, courseHandicaps]
+  );
+  const grossSkinsByPlayer = useMemo(() => skinsWonByPlayer(grossSkinsResults), [grossSkinsResults]);
+  const netSkinsByPlayer = useMemo(() => skinsWonByPlayer(netSkinsResults), [netSkinsResults]);
 
   const teamStandings = useMemo(() => {
     return teams
@@ -36,11 +59,12 @@ export default function Leaderboard({
         const members = individual.filter(p => team.playerIds.includes(p.playerId));
         const total = members.reduce((sum, m) => sum + m.relativeToPar, 0);
         const holesPlayed = Math.min(...members.map(m => m.holesPlayed));
-        const skinsCount = team.playerIds.reduce((sum, id) => sum + (skinsByPlayer[id] ?? 0), 0);
-        return { ...team, total, holesPlayed, skinsCount };
+        const grossSkinsCount = team.playerIds.reduce((sum, id) => sum + (grossSkinsByPlayer[id] ?? 0), 0);
+        const netSkinsCount = team.playerIds.reduce((sum, id) => sum + (netSkinsByPlayer[id] ?? 0), 0);
+        return { ...team, total, holesPlayed, grossSkinsCount, netSkinsCount };
       })
       .sort((a, b) => a.total - b.total);
-  }, [teams, individual, skinsByPlayer]);
+  }, [teams, individual, grossSkinsByPlayer, netSkinsByPlayer]);
 
   const formatScore = (n: number) => (n === 0 ? "E" : n > 0 ? `+${n}` : `${n}`);
   const scoreColor = (n: number) => (n < 0 ? "text-turf" : "text-chalk");
@@ -80,11 +104,18 @@ export default function Leaderboard({
               </div>
               <div>
                 <div className="text-[15px] font-semibold">{team.name}</div>
-                {team.skinsCount > 0 && (
-                  <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-md bg-flag/15 text-flag mt-1">
-                    {team.skinsCount} skin{team.skinsCount === 1 ? "" : "s"}
-                  </span>
-                )}
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {team.grossSkinsCount > 0 && (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-md bg-flag/15 text-flag">
+                      {team.grossSkinsCount} gross skin{team.grossSkinsCount === 1 ? "" : "s"}
+                    </span>
+                  )}
+                  {team.netSkinsCount > 0 && (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-md bg-turf/15 text-turf">
+                      {team.netSkinsCount} net skin{team.netSkinsCount === 1 ? "" : "s"}
+                    </span>
+                  )}
+                </div>
               </div>
               <div className="text-right">
                 <div className={`font-mono font-semibold text-lg ${scoreColor(team.total)}`}>{formatScore(team.total)}</div>
@@ -114,11 +145,18 @@ export default function Leaderboard({
               </div>
               <div>
                 <div className="text-[15px] font-semibold">{p.name}</div>
-                {(skinsByPlayer[p.playerId] ?? 0) > 0 && (
-                  <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-md bg-flag/15 text-flag mt-1">
-                    {skinsByPlayer[p.playerId]} skin{skinsByPlayer[p.playerId] === 1 ? "" : "s"}
-                  </span>
-                )}
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {(grossSkinsByPlayer[p.playerId] ?? 0) > 0 && (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-md bg-flag/15 text-flag">
+                      {grossSkinsByPlayer[p.playerId]} gross skin{grossSkinsByPlayer[p.playerId] === 1 ? "" : "s"}
+                    </span>
+                  )}
+                  {(netSkinsByPlayer[p.playerId] ?? 0) > 0 && (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-md bg-turf/15 text-turf">
+                      {netSkinsByPlayer[p.playerId]} net skin{netSkinsByPlayer[p.playerId] === 1 ? "" : "s"}
+                    </span>
+                  )}
+                </div>
               </div>
               <div className="text-right">
                 <div className={`font-mono font-semibold text-lg ${scoreColor(p.relativeToPar)}`}>
