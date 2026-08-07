@@ -23,7 +23,7 @@ export default function LeaderboardPage({ params }: { params: { tripId: string }
           Live · Round 1
         </div>
         <h1 className="font-display font-extrabold text-3xl leading-none mb-1">Trip {params.tripId}</h1>
-        <div className="text-sm text-chalk-dim font-medium">Front 9 in progress</div>
+        <div className="text-sm text-chalk-dim font-medium">Round in progress</div>
       </div>
 
       <TripNav tripId={params.tripId} />
