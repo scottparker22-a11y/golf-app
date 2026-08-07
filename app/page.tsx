@@ -16,6 +16,9 @@ export default function Home() {
       >
         View demo leaderboard
       </Link>
+      <Link href="/trip/demo/scorecard" className="text-turf text-sm underline">
+        Enter scores (scorecard)
+      </Link>
       <Link href="/trip/demo/setup" className="text-turf text-sm underline">
         Trip setup wizard
       </Link>

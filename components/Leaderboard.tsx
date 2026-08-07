@@ -8,21 +8,28 @@ import {
   calculateSkins,
   skinsWonByPlayer,
 } from "@/lib/scoring";
+import { useHoleScores } from "@/lib/tripStore";
 
 type TeamDef = { id: string; name: string; playerIds: string[] };
 
 export default function Leaderboard({
+  tripId,
   players,
   holes,
-  holeScores,
+  initialHoleScores,
   teams,
 }: {
+  tripId: string;
   players: Player[];
   holes: Hole[];
-  holeScores: HoleScore[];
+  initialHoleScores: HoleScore[];
   teams: TeamDef[];
 }) {
   const [view, setView] = useState<"team" | "individual">("team");
+
+  // Reads whatever's been entered on the Scorecard for this trip (same
+  // browser), falling back to initialHoleScores until anything's saved.
+  const { holeScores } = useHoleScores(tripId, initialHoleScores);
 
   const individual = useMemo(
     () => calculateIndividualLeaderboard(holeScores, players, holes),
