@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Buddy Trip — Live Leaderboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800&family=Manrope:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css">
+<style>
+  :root {
+    --fairway-950: #0B2818;
+    --fairway-900: #0F3020;
+    --surface: #153823;
+    --surface-raised: #1B4530;
+    --turf: #6FCF97;
+    --turf-dim: #3E8A62;
+    --chalk: #F4F2EA;
+    --chalk-dim: #9DB8A8;
+    --flag: #E4572E;
+    --flag-bg: rgba(228, 87, 46, 0.14);
+    --sand: #D9A441;
+    --border: rgba(244, 242, 234, 0.10);
+    --border-strong: rgba(244, 242, 234, 0.18);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--fairway-950);
+    color: var(--chalk);
+    font-family: 'Manrope', sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .screen {
+    max-width: 460px;
+    margin: 0 auto;
+    min-height: 100vh;
+    padding: 0 0 40px;
+  }
+
+  /* ── Header w/ mow-stripe signature ─────────────────────── */
+  .header {
+    position: relative;
+    padding: 28px 20px 24px;
+    background:
+      repeating-linear-gradient(
+        180deg,
+        rgba(244,242,234,0.025) 0px,
+        rgba(244,242,234,0.025) 22px,
+        transparent 22px,
+        transparent 44px
+      ),
+      var(--fairway-900);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .eyebrow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--chalk-dim);
+    margin-bottom: 10px;
+  }
+
+  .live-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--turf);
+    box-shadow: 0 0 0 3px rgba(111, 207, 151, 0.22);
+  }
+
+  .trip-name {
+    font-family: 'Big Shoulders Display', sans-serif;
+    font-weight: 800;
+    font-size: 32px;
+    line-height: 1;
+    letter-spacing: 0.01em;
+    margin: 0 0 4px;
+  }
+
+  .round-sub {
+    font-size: 14px;
+    color: var(--chalk-dim);
+    font-weight: 500;
+  }
+
+  /* ── View toggle ─────────────────────────────────────────── */
+  .view-toggle {
+    display: flex;
+    gap: 4px;
+    margin: 16px 20px 0;
+    padding: 3px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+
+  .toggle-btn {
+    flex: 1;
+    border: none;
+    background: transparent;
+    color: var(--chalk-dim);
+    font-family: 'Manrope', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 9px 0;
+    border-radius: 7px;
+    cursor: pointer;
+  }
+
+  .toggle-btn.active {
+    background: var(--surface-raised);
+    color: var(--chalk);
+  }
+
+  /* ── Leaderboard ─────────────────────────────────────────── */
+  .leaderboard {
+    padding: 16px 12px 4px;
+  }
+
+  .lb-row.individual {
+    grid-template-columns: 34px auto 1fr auto;
+  }
+
+  .player-initial {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: var(--surface-raised);
+    color: var(--chalk-dim);
+    font-size: 12px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .lb-row.leader .player-initial { color: var(--sand); }
+
+  .individual-note {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 4px 12px 8px;
+    padding: 10px 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-size: 12px;
+    color: var(--chalk-dim);
+    line-height: 1.4;
+  }
+
+  .lb-row {
+    display: grid;
+    grid-template-columns: 34px 1fr auto;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 12px;
+    border-radius: 12px;
+    margin-bottom: 6px;
+  }
+
+  .lb-row.leader {
+    background: var(--surface-raised);
+    border: 1px solid var(--border-strong);
+  }
+
+  .rank {
+    font-family: 'Big Shoulders Display', sans-serif;
+    font-weight: 800;
+    font-size: 22px;
+    color: var(--chalk-dim);
+    text-align: center;
+  }
+
+  .lb-row.leader .rank { color: var(--sand); }
+
+  .team-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .team-names {
+    font-size: 15px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .team-tags {
+    display: flex;
+    gap: 6px;
+  }
+
+  .tag {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 5px;
+    background: var(--flag-bg);
+    color: var(--flag);
+  }
+
+  .skins-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: var(--flag-bg);
+    color: var(--flag);
+  }
+
+  .skins-badge i { font-size: 12px; }
+
+  .score-block {
+    text-align: right;
+  }
+
+  .score-num {
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 600;
+    font-size: 18px;
+  }
+
+  .score-num.under { color: var(--turf); }
+
+  .score-thru {
+    font-size: 11px;
+    color: var(--chalk-dim);
+    font-weight: 500;
+  }
+
+  /* ── Games strip ─────────────────────────────────────────── */
+  .games-strip {
+    display: flex;
+    gap: 10px;
+    padding: 18px 20px 4px;
+    overflow-x: auto;
+  }
+
+  .game-chip {
+    flex: 0 0 auto;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 14px;
+    min-width: 128px;
+  }
+
+  .game-chip .label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--chalk-dim);
+    margin-bottom: 6px;
+  }
+
+  .game-chip .value {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 16px;
+    font-weight: 600;
+  }
+
+  .game-chip .value.pot { color: var(--flag); }
+
+  /* ── Scorecard grid ──────────────────────────────────────── */
+  .section-title {
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--chalk-dim);
+    padding: 22px 20px 10px;
+  }
+
+  .scorecard {
+    margin: 0 20px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+  }
+
+  th, td {
+    padding: 9px 6px;
+    text-align: center;
+  }
+
+  th {
+    font-weight: 500;
+    color: var(--chalk-dim);
+    font-size: 11px;
+    background: var(--surface);
+  }
+
+  th:first-child, td:first-child {
+    text-align: left;
+    padding-left: 14px;
+    font-family: 'Manrope', sans-serif;
+    font-weight: 600;
+    font-size: 13px;
+  }
+
+  tbody tr {
+    border-top: 1px solid var(--border);
+  }
+
+  td.par { color: var(--turf); font-weight: 600; }
+  td.bogey { color: var(--flag); font-weight: 600; }
+
+  /* ── Bottom nav ──────────────────────────────────────────── */
+  .nav {
+    position: sticky;
+    bottom: 0;
+    display: flex;
+    margin-top: 24px;
+    border-top: 1px solid var(--border);
+    background: var(--fairway-900);
+  }
+
+  .nav-item {
+    flex: 1;
+    text-align: center;
+    padding: 14px 0 12px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--chalk-dim);
+    letter-spacing: 0.02em;
+  }
+
+  .nav-item.active {
+    color: var(--turf);
+    box-shadow: inset 0 2px 0 var(--turf);
+  }
+</style>
+</head>
+<body>
+<div class="screen">
+
+  <div class="header">
+    <div class="eyebrow"><span class="live-dot"></span>Live · Round 2</div>
+    <h1 class="trip-name">Whistling Straits</h1>
+    <div class="round-sub">Saturday · 4 groups on course</div>
+  </div>
+
+  <div class="view-toggle">
+    <button class="toggle-btn active" data-view="team" onclick="setView('team')">Team</button>
+    <button class="toggle-btn" data-view="individual" onclick="setView('individual')">Individual</button>
+  </div>
+
+  <div class="leaderboard" id="team-leaderboard">
+    <div class="lb-row leader">
+      <div class="rank">1</div>
+      <div class="team-info">
+        <div class="team-names">Mike &amp; Tom</div>
+        <div class="team-tags"><span class="skins-badge"><i class="ti ti-flag" aria-hidden="true"></i>4 skins</span></div>
+      </div>
+      <div class="score-block">
+        <div class="score-num under">−4</div>
+        <div class="score-thru">thru 14</div>
+      </div>
+    </div>
+
+    <div class="lb-row">
+      <div class="rank">2</div>
+      <div class="team-info">
+        <div class="team-names">Scott &amp; Will</div>
+      </div>
+      <div class="score-block">
+        <div class="score-num under">−2</div>
+        <div class="score-thru">thru 15</div>
+      </div>
+    </div>
+
+    <div class="lb-row">
+      <div class="rank">3</div>
+      <div class="team-info">
+        <div class="team-names">Dave &amp; Chris</div>
+      </div>
+      <div class="score-block">
+        <div class="score-num">E</div>
+        <div class="score-thru">thru 13</div>
+      </div>
+    </div>
+
+    <div class="lb-row">
+      <div class="rank">4</div>
+      <div class="team-info">
+        <div class="team-names">Jake &amp; Pete</div>
+      </div>
+      <div class="score-block">
+        <div class="score-num">+3</div>
+        <div class="score-thru">thru 12</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="leaderboard" id="individual-leaderboard" style="display: none;">
+    <div class="individual-note">
+      <i class="ti ti-info-circle" style="font-size:15px; flex-shrink:0;" aria-hidden="true"></i>
+      Gross totals from best-ball holes only — the 2 scramble and 2 alt-shot holes played so far aren't counted, since only a team score exists for those.
+    </div>
+
+    <div class="lb-row individual leader">
+      <div class="rank">1</div>
+      <div class="player-initial">TW</div>
+      <div class="team-info">
+        <div class="team-names">Tom Wagner</div>
+        <div class="team-tags"><span class="skins-badge"><i class="ti ti-flag" aria-hidden="true"></i>3 skins</span></div>
+      </div>
+      <div class="score-block">
+        <div class="score-num under">−3</div>
+        <div class="score-thru">10 holes</div>
+      </div>
+    </div>
+
+    <div class="lb-row individual">
+      <div class="rank">2</div>
+      <div class="player-initial">SP</div>
+      <div class="team-info">
+        <div class="team-names">Scott Parker</div>
+      </div>
+      <div class="score-block">
+        <div class="score-num under">−1</div>
+        <div class="score-thru">11 holes</div>
+      </div>
+    </div>
+
+    <div class="lb-row individual">
+      <div class="rank">3</div>
+      <div class="player-initial">MR</div>
+      <div class="team-info">
+        <div class="team-names">Mike Reyes</div>
+        <div class="team-tags"><span class="skins-badge"><i class="ti ti-flag" aria-hidden="true"></i>1 skin</span></div>
+      </div>
+      <div class="score-block">
+        <div class="score-num">E</div>
+        <div class="score-thru">10 holes</div>
+      </div>
+    </div>
+
+    <div class="lb-row individual">
+      <div class="rank">4</div>
+      <div class="player-initial">DC</div>
+      <div class="team-info">
+        <div class="team-names">Dave Chen</div>
+      </div>
+      <div class="score-block">
+        <div class="score-num">+1</div>
+        <div class="score-thru">9 holes</div>
+      </div>
+    </div>
+
+    <div class="lb-row individual">
+      <div class="rank">5</div>
+      <div class="player-initial">WR</div>
+      <div class="team-info">
+        <div class="team-names">Will Robinson</div>
+      </div>
+      <div class="score-block">
+        <div class="score-num">+2</div>
+        <div class="score-thru">11 holes</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="games-strip">
+    <div class="game-chip">
+      <div class="label">Skins pot</div>
+      <div class="value pot">$180</div>
+    </div>
+    <div class="game-chip">
+      <div class="label">Nassau</div>
+      <div class="value">Mike 2up</div>
+    </div>
+  </div>
+
+  <div class="section-title">Scorecard — Mike &amp; Tom</div>
+  <div class="scorecard">
+    <table>
+      <thead>
+        <tr>
+          <th>Hole</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th><th>6</th><th>7</th><th>8</th><th>9</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Par</td><td>4</td><td>3</td><td>5</td><td>4</td><td>4</td><td>3</td><td>4</td><td>5</td><td>4</td>
+        </tr>
+        <tr>
+          <td>Mike</td>
+          <td class="par">4</td><td class="bogey">4</td><td class="par">5</td><td class="par">4</td>
+          <td class="par">4</td><td class="par">3</td><td class="bogey">5</td><td class="par">5</td><td class="par">4</td>
+        </tr>
+        <tr>
+          <td>Tom</td>
+          <td class="bogey">5</td><td class="par">3</td><td class="par">4</td><td class="par">4</td>
+          <td class="bogey">5</td><td class="par">3</td><td class="par">4</td><td class="bogey">6</td><td class="par">4</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="nav">
+    <div class="nav-item active">Leaderboard</div>
+    <div class="nav-item">Scorecard</div>
+    <div class="nav-item">Games</div>
+    <div class="nav-item">Trip</div>
+  </div>
+
+</div>
+<script>
+  function setView(view) {
+    document.getElementById('team-leaderboard').style.display = view === 'team' ? '' : 'none';
+    document.getElementById('individual-leaderboard').style.display = view === 'individual' ? '' : 'none';
+    document.querySelectorAll('.toggle-btn').forEach(function (btn) {
+      btn.classList.toggle('active', btn.dataset.view === view);
+    });
+  }
+</script>
+</body>
+</html>

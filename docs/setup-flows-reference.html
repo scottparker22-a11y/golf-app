@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Trip Setup Flow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800&family=Manrope:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css">
+<style>
+  :root {
+    --fairway-950: #0B2818;
+    --fairway-900: #0F3020;
+    --surface: #153823;
+    --surface-raised: #1B4530;
+    --turf: #6FCF97;
+    --chalk: #F4F2EA;
+    --chalk-dim: #9DB8A8;
+    --flag: #E4572E;
+    --flag-bg: rgba(228, 87, 46, 0.14);
+    --sand: #D9A441;
+    --sand-bg: rgba(217, 164, 65, 0.14);
+    --border: rgba(244, 242, 234, 0.10);
+    --border-strong: rgba(244, 242, 234, 0.18);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--fairway-950);
+    color: var(--chalk);
+    font-family: 'Manrope', sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .screen { max-width: 460px; margin: 0 auto; min-height: 100vh; padding: 0 0 40px; }
+
+  .header {
+    padding: 24px 20px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .step-count { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--chalk-dim); margin-bottom: 6px; }
+  .screen-title { font-family: 'Big Shoulders Display', sans-serif; font-weight: 800; font-size: 28px; margin: 0; }
+
+  .title-edit-row {
+    display: flex; align-items: center; gap: 8px;
+  }
+  .screen-title-input {
+    font-family: 'Big Shoulders Display', sans-serif;
+    font-weight: 800;
+    font-size: 28px;
+    background: transparent;
+    border: none;
+    border-bottom: 1px dashed var(--border-strong);
+    color: var(--chalk);
+    padding: 2px 0 4px;
+    flex: 1;
+    min-width: 0;
+  }
+  .screen-title-input:focus { outline: none; border-bottom-color: var(--turf); }
+  .title-edit-row i { color: var(--chalk-dim); font-size: 15px; flex-shrink: 0; }
+
+  /* ── Tab strip ─────────────────────────────────────────── */
+  .tabs {
+    display: flex;
+    gap: 6px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    border-bottom: 1px solid var(--border);
+  }
+  .tab-btn {
+    flex: 0 0 auto;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--chalk-dim);
+    font-size: 12.5px;
+    font-weight: 600;
+    padding: 8px 13px;
+    border-radius: 20px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .tab-btn.active { background: var(--turf); color: var(--fairway-950); border-color: var(--turf); }
+
+  .panel { display: none; padding: 18px 20px 8px; }
+  .panel.active { display: block; }
+
+  .helper-text { font-size: 13px; color: var(--chalk-dim); line-height: 1.5; margin: 0 0 18px; }
+
+  /* ── Player rows (Add Players) ────────────────────────── */
+  .player-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 8px;
+  }
+  .avatar {
+    width: 34px; height: 34px; border-radius: 50%;
+    background: var(--surface-raised); color: var(--chalk-dim);
+    font-size: 12px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .field-input {
+    background: transparent; border: none; color: var(--chalk);
+    font-family: 'Manrope', sans-serif; font-size: 14px; font-weight: 600;
+    flex: 1; min-width: 0; padding: 4px 0;
+  }
+  .field-input::placeholder { color: var(--chalk-dim); font-weight: 500; }
+  .hcp-input {
+    width: 52px; background: var(--surface-raised); border: 1px solid var(--border-strong);
+    border-radius: 7px; color: var(--turf); font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px; font-weight: 600; text-align: center; padding: 6px 2px;
+  }
+  .hcp-label { font-size: 10px; color: var(--chalk-dim); font-weight: 600; text-transform: uppercase; }
+  .hcp-block { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+
+  .add-row-btn {
+    width: 100%; padding: 12px; border-radius: 10px; border: 1px dashed var(--border-strong);
+    background: transparent; color: var(--turf); font-weight: 700; font-size: 13.5px;
+    display: flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer;
+  }
+
+  /* ── Teams (Ryder Cup) ─────────────────────────────────── */
+  .autobtn {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--surface-raised); border: 1px solid var(--border-strong);
+    color: var(--chalk); font-size: 12.5px; font-weight: 700;
+    padding: 8px 12px; border-radius: 9px; margin-bottom: 16px; cursor: pointer;
+  }
+  .team-columns { display: flex; gap: 10px; }
+  .team-col { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
+  .team-col-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .team-col-name { font-family: 'Big Shoulders Display', sans-serif; font-weight: 800; font-size: 16px; }
+  .team-avg { font-size: 10.5px; color: var(--chalk-dim); font-family: 'IBM Plex Mono', monospace; }
+  .chip {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--surface-raised); border-radius: 8px; padding: 7px 9px; margin-bottom: 6px;
+  }
+  .chip .avatar { width: 24px; height: 24px; font-size: 10px; }
+  .chip-name { font-size: 12.5px; font-weight: 600; flex: 1; }
+  .chip-hcp { font-size: 11px; color: var(--chalk-dim); font-family: 'IBM Plex Mono', monospace; }
+  .drag-handle { color: var(--chalk-dim); font-size: 13px; cursor: grab; }
+
+  /* ── Foursomes ─────────────────────────────────────────── */
+  .group-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-bottom: 12px; }
+  .group-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .group-title { font-family: 'Big Shoulders Display', sans-serif; font-weight: 800; font-size: 17px; }
+  .group-avg { font-size: 11px; color: var(--chalk-dim); font-family: 'IBM Plex Mono', monospace; }
+
+  .format-select {
+    display: flex; gap: 5px; overflow-x: auto; margin-bottom: 12px; padding-bottom: 2px;
+  }
+  .format-pill {
+    flex: 0 0 auto; font-size: 11px; font-weight: 700; padding: 6px 10px;
+    border-radius: 16px; border: 1px solid var(--border-strong); color: var(--chalk-dim);
+    background: var(--surface-raised); white-space: nowrap;
+  }
+  .format-pill.active { background: var(--turf); color: var(--fairway-950); border-color: var(--turf); }
+
+  /* ── Scorekeeper picker ────────────────────────────────── */
+  .scorer-chip { display: flex; align-items: center; gap: 8px; background: var(--surface-raised); border: 1px solid var(--border-strong); border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; cursor: pointer; }
+  .scorer-chip.selected { background: var(--sand-bg); border-color: var(--sand); }
+  .radio-dot { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--chalk-dim); flex-shrink: 0; }
+  .scorer-chip.selected .radio-dot { border-color: var(--sand); background: var(--sand); position: relative; }
+  .scorer-badge { margin-left: auto; font-size: 10px; font-weight: 700; color: var(--sand); text-transform: uppercase; letter-spacing: 0.04em; display: none; }
+  .scorer-chip.selected .scorer-badge { display: inline; }
+
+  /* ── Course / holes ────────────────────────────────────── */
+  .search-box {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--surface); border: 1px solid var(--border-strong); border-radius: 10px;
+    padding: 11px 13px; margin-bottom: 10px;
+  }
+  .search-box input { background: transparent; border: none; color: var(--chalk); font-size: 14px; flex: 1; font-family: 'Manrope', sans-serif; }
+  .search-box i { color: var(--chalk-dim); }
+  .course-result { background: var(--surface-raised); border: 1px solid var(--border-strong); border-radius: 10px; padding: 11px 13px; margin-bottom: 14px; }
+  .course-result-name { font-weight: 700; font-size: 14px; margin-bottom: 2px; }
+  .course-result-loc { font-size: 12px; color: var(--chalk-dim); margin-bottom: 10px; }
+
+  .tee-select { display: flex; gap: 6px; margin-bottom: 8px; }
+  .tee-pill { flex: 1; text-align: center; padding: 7px 0; border-radius: 8px; font-size: 12px; font-weight: 700; border: 1px solid var(--border-strong); }
+  .tee-pill.blue { background: rgba(64,130,220,0.16); color: #7FB0F2; border-color: #4082DC; }
+  .tee-pill.white { background: rgba(244,242,234,0.10); color: var(--chalk); border-color: var(--border-strong); }
+  .tee-pill.red.active, .tee-pill.blue.active, .tee-pill.white.active { outline: 2px solid var(--turf); }
+
+  .autofill-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: rgba(111,207,151,0.14); color: var(--turf);
+    font-size: 11.5px; font-weight: 700; padding: 6px 10px; border-radius: 8px; margin-bottom: 14px;
+  }
+
+  table.holes-table { width: 100%; border-collapse: collapse; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; }
+  table.holes-table th, table.holes-table td { padding: 7px 4px; text-align: center; }
+  table.holes-table th { color: var(--chalk-dim); font-weight: 500; font-size: 10px; background: var(--surface); }
+  table.holes-table th:first-child, table.holes-table td:first-child { text-align: left; padding-left: 10px; font-family: 'Manrope', sans-serif; font-weight: 600; font-size: 12px; }
+  table.holes-table tbody tr { border-top: 1px solid var(--border); }
+  .holes-wrap { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  td.editable { position: relative; color: var(--chalk); }
+  td.editable i { font-size: 9px; color: var(--chalk-dim); margin-left: 3px; }
+
+  /* ── Rounds (itinerary) ────────────────────────────────── */
+  .round-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-bottom: 12px; }
+  .round-card-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; }
+  .round-title { font-family: 'Big Shoulders Display', sans-serif; font-weight: 800; font-size: 16px; }
+  .round-meta-line { font-size: 11px; color: var(--chalk-dim); font-family: 'IBM Plex Mono', monospace; }
+  .datetime-row { display: flex; gap: 8px; margin-bottom: 10px; }
+  .date-input { flex: 1; display: flex; align-items: center; gap: 6px; background: var(--surface-raised); border: 1px solid var(--border-strong); border-radius: 9px; padding: 9px 10px; }
+  .date-input i { color: var(--chalk-dim); font-size: 13px; flex-shrink: 0; }
+  .date-input input { background: transparent; border: none; color: var(--chalk); font-size: 12.5px; font-family: 'Manrope', sans-serif; width: 100%; }
+  .round-summary { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--chalk-dim); }
+  .round-summary i.ti-cloud-check { color: var(--turf); font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="screen">
+
+  <div class="header">
+    <div class="step-count">Trip setup</div>
+    <div class="title-edit-row">
+      <input class="screen-title-input" value="Whistling Straits Trip" />
+      <i class="ti ti-pencil" aria-hidden="true"></i>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="players" onclick="setTab('players')">1 · Players</button>
+    <button class="tab-btn" data-tab="teams" onclick="setTab('teams')">2 · Ryder Cup Teams</button>
+    <button class="tab-btn" data-tab="foursomes" onclick="setTab('foursomes')">3 · Foursomes</button>
+    <button class="tab-btn" data-tab="scorer" onclick="setTab('scorer')">4 · Scorekeeper</button>
+    <button class="tab-btn" data-tab="course" onclick="setTab('course')">5 · Rounds</button>
+  </div>
+
+  <!-- 1. ADD PLAYERS -->
+  <div class="panel active" id="panel-players">
+    <p class="helper-text">Add everyone on the trip once — name and handicap index. This list feeds every other step, so you only enter each guy once.</p>
+
+    <div class="player-row">
+      <div class="avatar">MR</div>
+      <input class="field-input" value="Mike Reyes" />
+      <div class="hcp-block"><span class="hcp-label">HCP</span><input class="hcp-input" value="8.4" /></div>
+    </div>
+    <div class="player-row">
+      <div class="avatar">TW</div>
+      <input class="field-input" value="Tom Wagner" />
+      <div class="hcp-block"><span class="hcp-label">HCP</span><input class="hcp-input" value="12.1" /></div>
+    </div>
+    <div class="player-row">
+      <div class="avatar">SP</div>
+      <input class="field-input" value="Scott Parker" />
+      <div class="hcp-block"><span class="hcp-label">HCP</span><input class="hcp-input" value="10.6" /></div>
+    </div>
+    <div class="player-row">
+      <div class="avatar">WR</div>
+      <input class="field-input" value="Will Robinson" />
+      <div class="hcp-block"><span class="hcp-label">HCP</span><input class="hcp-input" value="14.2" /></div>
+    </div>
+    <div class="player-row">
+      <div class="avatar">DC</div>
+      <input class="field-input" value="Dave Chen" />
+      <div class="hcp-block"><span class="hcp-label">HCP</span><input class="hcp-input" value="6.9" /></div>
+    </div>
+    <div class="player-row">
+      <div class="avatar" style="background:transparent;border:1px dashed var(--border-strong);"></div>
+      <input class="field-input" placeholder="Add player name…" />
+      <div class="hcp-block"><span class="hcp-label">HCP</span><input class="hcp-input" placeholder="—" /></div>
+    </div>
+
+    <button class="add-row-btn"><i class="ti ti-plus" aria-hidden="true"></i>Add another player</button>
+  </div>
+
+  <!-- 2. RYDER CUP TEAMS -->
+  <div class="panel" id="panel-teams">
+    <p class="helper-text">Split the trip roster into two Ryder Cup teams. Auto-balance sorts by handicap so both sides come out even, or drag players between columns yourself.</p>
+
+    <button class="autobtn"><i class="ti ti-scale" aria-hidden="true"></i>Auto-balance by handicap</button>
+
+    <div class="team-columns">
+      <div class="team-col">
+        <div class="team-col-header">
+          <div class="team-col-name">Team USA</div>
+          <div class="team-avg">avg 9.7</div>
+        </div>
+        <div class="chip"><span class="drag-handle">⠿</span><div class="avatar">MR</div><div class="chip-name">Mike Reyes</div><div class="chip-hcp">8.4</div></div>
+        <div class="chip"><span class="drag-handle">⠿</span><div class="avatar">SP</div><div class="chip-name">Scott Parker</div><div class="chip-hcp">10.6</div></div>
+        <div class="chip"><span class="drag-handle">⠿</span><div class="avatar">DC</div><div class="chip-name">Dave Chen</div><div class="chip-hcp">6.9</div></div>
+      </div>
+      <div class="team-col">
+        <div class="team-col-header">
+          <div class="team-col-name">Team Europe</div>
+          <div class="team-avg">avg 11.4</div>
+        </div>
+        <div class="chip"><span class="drag-handle">⠿</span><div class="avatar">TW</div><div class="chip-name">Tom Wagner</div><div class="chip-hcp">12.1</div></div>
+        <div class="chip"><span class="drag-handle">⠿</span><div class="avatar">WR</div><div class="chip-name">Will Robinson</div><div class="chip-hcp">14.2</div></div>
+        <div class="chip"><span class="drag-handle">⠿</span><div class="avatar">JP</div><div class="chip-name">Jake Pruitt</div><div class="chip-hcp">7.8</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. FOURSOMES -->
+  <div class="panel" id="panel-foursomes">
+    <p class="helper-text">Groups for the round — drag players between groups, or auto-fill to spread handicaps evenly across each foursome.</p>
+
+    <button class="autobtn"><i class="ti ti-shuffle" aria-hidden="true"></i>Auto-fill foursomes</button>
+
+    <div class="group-card">
+      <div class="group-card-header"><div class="group-title">Group 1</div><div class="group-avg">avg 9.1</div></div>
+      <div class="format-select">
+        <div class="format-pill">Stroke Play</div>
+        <div class="format-pill active">Best Ball</div>
+        <div class="format-pill">Scramble</div>
+        <div class="format-pill">Alt Shot</div>
+        <div class="format-pill">High-Low</div>
+      </div>
+      <div class="chip"><span class="drag-handle">⠿</span><div class="avatar">MR</div><div class="chip-name">Mike Reyes</div><div class="chip-hcp">8.4</div></div>
+      <div class="chip"><span class="drag-handle">⠿</span><div class="avatar">TW</div><div class="chip-name">Tom Wagner</div><div class="chip-hcp">12.1</div></div>
+      <div class="chip"><span class="drag-handle">⠿</span><div class="avatar">SP</div><div class="chip-name">Scott Parker</div><div class="chip-hcp">10.6</div></div>
+      <div class="chip"><span class="drag-handle">⠿</span><div class="avatar">DC</div><div class="chip-name">Dave Chen</div><div class="chip-hcp">6.9</div></div>
+    </div>
+
+    <div class="group-card">
+      <div class="group-card-header"><div class="group-title">Group 2</div><div class="group-avg">avg 11.2</div></div>
+      <div class="format-select">
+        <div class="format-pill">Stroke Play</div>
+        <div class="format-pill">Best Ball</div>
+        <div class="format-pill active">Scramble</div>
+        <div class="format-pill">Alt Shot</div>
+        <div class="format-pill">High-Low</div>
+      </div>
+      <div class="chip"><span class="drag-handle">⠿</span><div class="avatar">WR</div><div class="chip-name">Will Robinson</div><div class="chip-hcp">14.2</div></div>
+      <div class="chip"><span class="drag-handle">⠿</span><div class="avatar">JP</div><div class="chip-name">Jake Pruitt</div><div class="chip-hcp">7.8</div></div>
+    </div>
+  </div>
+
+  <!-- 4. SCOREKEEPER -->
+  <div class="panel" id="panel-scorer">
+    <p class="helper-text">Tap a player in each group to make them the scorekeeper for that foursome — that's the only person entering strokes during the round.</p>
+
+    <div class="group-card">
+      <div class="group-card-header"><div class="group-title">Group 1</div></div>
+      <div class="scorer-chip"><div class="radio-dot"></div><div class="avatar">MR</div><div class="chip-name">Mike Reyes</div><span class="scorer-badge">Scorer</span></div>
+      <div class="scorer-chip selected"><div class="radio-dot"></div><div class="avatar">TW</div><div class="chip-name">Tom Wagner</div><span class="scorer-badge">Scorer</span></div>
+      <div class="scorer-chip"><div class="radio-dot"></div><div class="avatar">SP</div><div class="chip-name">Scott Parker</div><span class="scorer-badge">Scorer</span></div>
+      <div class="scorer-chip"><div class="radio-dot"></div><div class="avatar">DC</div><div class="chip-name">Dave Chen</div><span class="scorer-badge">Scorer</span></div>
+    </div>
+
+    <div class="group-card">
+      <div class="group-card-header"><div class="group-title">Group 2</div></div>
+      <div class="scorer-chip selected"><div class="radio-dot"></div><div class="avatar">WR</div><div class="chip-name">Will Robinson</div><span class="scorer-badge">Scorer</span></div>
+      <div class="scorer-chip"><div class="radio-dot"></div><div class="avatar">JP</div><div class="chip-name">Jake Pruitt</div><span class="scorer-badge">Scorer</span></div>
+    </div>
+  </div>
+
+  <!-- 5. ROUNDS (COURSES, DATES, TEE TIMES) -->
+  <div class="panel" id="panel-course">
+    <p class="helper-text">Add every round of the trip up front — course, date, and tee time. Par and stroke index autofill per round once you pick the course and which tees you're playing.</p>
+
+    <div class="round-card">
+      <div class="round-card-header">
+        <div class="round-title">Round 1</div>
+        <div class="round-meta-line">Sat, Aug 15 · 8:10 AM</div>
+      </div>
+
+      <div class="datetime-row">
+        <div class="date-input"><i class="ti ti-calendar" aria-hidden="true"></i><input value="Sat, Aug 15" /></div>
+        <div class="date-input"><i class="ti ti-clock" aria-hidden="true"></i><input value="8:10 AM" /></div>
+      </div>
+
+      <div class="search-box"><i class="ti ti-search" aria-hidden="true"></i><input placeholder="Search course name…" value="Whistling Straits" /></div>
+
+      <div class="course-result">
+        <div class="course-result-name">Whistling Straits — Straits Course</div>
+        <div class="course-result-loc">Kohler, WI</div>
+        <div class="tee-select">
+          <div class="tee-pill blue active">Blue</div>
+          <div class="tee-pill white">White</div>
+          <div class="tee-pill red">Red</div>
+        </div>
+      </div>
+
+      <div class="autofill-badge"><i class="ti ti-cloud-check" aria-hidden="true"></i>Par &amp; stroke index autofilled from course database</div>
+
+      <div class="holes-wrap">
+        <table class="holes-table">
+          <thead><tr><th>Hole</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th><th>6</th><th>7</th><th>8</th><th>9</th></tr></thead>
+          <tbody>
+            <tr><td>Par</td><td class="editable">4<i class="ti ti-pencil" aria-hidden="true"></i></td><td class="editable">3<i class="ti ti-pencil" aria-hidden="true"></i></td><td class="editable">5<i class="ti ti-pencil" aria-hidden="true"></i></td><td class="editable">4<i class="ti ti-pencil" aria-hidden="true"></i></td><td class="editable">4<i class="ti ti-pencil" aria-hidden="true"></i></td><td class="editable">3<i class="ti ti-pencil" aria-hidden="true"></i></td><td class="editable">4<i class="ti ti-pencil" aria-hidden="true"></i></td><td class="editable">5<i class="ti ti-pencil" aria-hidden="true"></i></td><td class="editable">4<i class="ti ti-pencil" aria-hidden="true"></i></td></tr>
+            <tr><td>Stroke Idx</td><td class="editable">7<i class="ti ti-pencil" aria-hidden="true"></i></td><td class="editable">15<i class="ti ti-pencil" aria-hidden="true"></i></td><td class="editable">3<i class="ti ti-pencil" aria-hidden="true"></i></td><td class="editable">11<i class="ti ti-pencil" aria-hidden="true"></i></td><td class="editable">1<i class="ti ti-pencil" aria-hidden="true"></i></td><td class="editable">17<i class="ti ti-pencil" aria-hidden="true"></i></td><td class="editable">9<i class="ti ti-pencil" aria-hidden="true"></i></td><td class="editable">5<i class="ti ti-pencil" aria-hidden="true"></i></td><td class="editable">13<i class="ti ti-pencil" aria-hidden="true"></i></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="round-card">
+      <div class="round-card-header">
+        <div class="round-title">Round 2</div>
+        <div class="round-meta-line">Sun, Aug 16 · 7:40 AM</div>
+      </div>
+      <div class="round-summary"><i class="ti ti-cloud-check" aria-hidden="true"></i>Blackwolf Run — Meadow Valleys · White tees · autofilled</div>
+    </div>
+
+    <button class="add-row-btn"><i class="ti ti-plus" aria-hidden="true"></i>Add another round</button>
+  </div>
+
+</div>
+<script>
+  function setTab(tab) {
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    document.getElementById('panel-' + tab).classList.add('active');
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  }
+</script>
+</body>
+</html>
