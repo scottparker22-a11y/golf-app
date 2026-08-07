@@ -2,7 +2,19 @@
 
 import type { GolfFormat, Player } from "@/lib/types";
 
-export type Group = { id: string; playerIds: string[]; format: GolfFormat };
+// Formats where the 4 players in a group actually play as 2 teams of 2.
+// Stroke play is every player for themselves, so no pairing applies.
+const TEAM_FORMATS: GolfFormat[] = ["best_ball", "scramble", "alt_shot"];
+
+export type Group = {
+  id: string;
+  playerIds: string[];
+  format: GolfFormat;
+  // playerId -> "1" | "2", which of the two teammate pairs they're on
+  // within this foursome. Independent of any trip-wide Ryder Cup teams —
+  // this is for picking partners on rounds/games that aren't Ryder Cup.
+  pairings: Record<string, "1" | "2">;
+};
 
 const FORMATS: { value: GolfFormat; label: string }[] = [
   { value: "stroke_play", label: "Stroke Play" },
@@ -10,6 +22,14 @@ const FORMATS: { value: GolfFormat; label: string }[] = [
   { value: "scramble", label: "Scramble" },
   { value: "alt_shot", label: "Alt Shot" },
 ];
+
+function defaultPairings(ids: string[]): Record<string, "1" | "2"> {
+  const pairings: Record<string, "1" | "2"> = {};
+  ids.forEach((id, i) => {
+    pairings[id] = i % 2 === 0 ? "1" : "2";
+  });
+  return pairings;
+}
 
 export default function FoursomesStep({
   players,
@@ -25,10 +45,12 @@ export default function FoursomesStep({
     const size = 4;
     const next: Group[] = [];
     for (let i = 0; i < sorted.length; i += size) {
+      const playerIds = sorted.slice(i, i + size).map(p => p.id);
       next.push({
         id: crypto.randomUUID(),
-        playerIds: sorted.slice(i, i + size).map(p => p.id),
+        playerIds,
         format: "stroke_play",
+        pairings: defaultPairings(playerIds),
       });
     }
     setGroups(next);
@@ -79,16 +101,58 @@ export default function FoursomesStep({
             ))}
           </div>
 
-          {group.playerIds.map(id => {
-            const p = players.find(pl => pl.id === id);
-            if (!p) return null;
-            return (
-              <div key={id} className="flex items-center gap-2 bg-surface-raised rounded-lg px-2.5 py-1.5 mb-1.5">
-                <div className="text-[12.5px] font-semibold flex-1">{p.name}</div>
-                <div className="text-[11px] text-chalk-dim font-mono">{p.handicapIndex}</div>
+          {TEAM_FORMATS.includes(group.format) ? (
+            <>
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-chalk-dim mb-2">
+                Teammates for this foursome
               </div>
-            );
-          })}
+              <div className="flex gap-2">
+                {(["1", "2"] as const).map(pair => (
+                  <div key={pair} className="flex-1 bg-surface-raised border border-[color:var(--border-strong)] rounded-lg p-2">
+                    <div className="text-[10.5px] font-bold text-chalk-dim mb-1.5">Pair {pair}</div>
+                    {group.playerIds
+                      .filter(id => (group.pairings?.[id] ?? "1") === pair)
+                      .map(id => {
+                        const p = players.find(pl => pl.id === id);
+                        if (!p) return null;
+                        return (
+                          <div key={id} className="flex items-center gap-1.5 mb-1.5">
+                            <div className="text-[12px] font-semibold flex-1 truncate">{p.name}</div>
+                            <button
+                              onClick={() => {
+                                const next = [...groups];
+                                next[gi] = {
+                                  ...group,
+                                  pairings: {
+                                    ...group.pairings,
+                                    [id]: pair === "1" ? "2" : "1",
+                                  },
+                                };
+                                setGroups(next);
+                              }}
+                              className="text-[10px] text-turf font-bold flex-shrink-0"
+                            >
+                              move
+                            </button>
+                          </div>
+                        );
+                      })}
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            group.playerIds.map(id => {
+              const p = players.find(pl => pl.id === id);
+              if (!p) return null;
+              return (
+                <div key={id} className="flex items-center gap-2 bg-surface-raised rounded-lg px-2.5 py-1.5 mb-1.5">
+                  <div className="text-[12.5px] font-semibold flex-1">{p.name}</div>
+                  <div className="text-[11px] text-chalk-dim font-mono">{p.handicapIndex}</div>
+                </div>
+              );
+            })
+          )}
         </div>
       ))}
     </div>
