@@ -7,13 +7,19 @@ export default function PlayersStep({
   players,
   setPlayers,
   roster,
+  onDeleteFromRoster,
 }: {
   players: Player[];
   setPlayers: (p: Player[]) => void;
   /** The trip's standing roster from previous rounds — pick from it instead of retyping. */
   roster: Player[];
+  /** Permanently deletes a player from the trip roster (not just this round). */
+  onDeleteFromRoster: (player: Player) => Promise<void>;
 }) {
   const [bulkNames, setBulkNames] = useState("");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const rosterIds = new Set(roster.map(r => r.id));
   const addedIds = new Set(players.map(p => p.id));
   const availableRoster = roster.filter(r => !addedIds.has(r.id));
@@ -24,6 +30,19 @@ export default function PlayersStep({
   const removePlayer = (id: string) => setPlayers(players.filter(p => p.id !== id));
 
   const addFromRoster = (p: Player) => setPlayers([...players, p]);
+
+  const handleDeleteFromRoster = async (p: Player) => {
+    setConfirmDeleteId(null);
+    setDeletingId(p.id);
+    setDeleteError(null);
+    try {
+      await onDeleteFromRoster(p);
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : "Couldn't delete this player");
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   const addPlayer = () =>
     setPlayers([...players, { id: crypto.randomUUID(), name: "", handicapIndex: 0 }]);
@@ -50,21 +69,55 @@ export default function PlayersStep({
           <div className="text-[11px] font-semibold uppercase tracking-wide text-chalk-dim mb-2">
             From your roster
           </div>
+          {deleteError && (
+            <div className="mb-2 p-2.5 bg-flag/10 border border-flag/30 rounded-lg text-[12px] text-flag">
+              {deleteError}
+            </div>
+          )}
           {availableRoster.map(r => (
-            <button
+            <div
               key={r.id}
-              onClick={() => addFromRoster(r)}
-              className="w-full flex items-center gap-2.5 p-2.5 bg-surface border border-dashed border-[color:var(--border-strong)] rounded-xl mb-1.5 text-left"
+              className="flex items-center gap-1 bg-surface border border-dashed border-[color:var(--border-strong)] rounded-xl mb-1.5"
             >
-              <div className="w-[34px] h-[34px] rounded-full bg-surface-raised text-chalk-dim text-xs font-bold flex items-center justify-center flex-shrink-0">
-                {r.name.split(" ").filter(Boolean).map(n => n[0]).join("") || "?"}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-semibold truncate">{r.name}</div>
-                <div className="text-[11px] text-chalk-dim">Hcp {r.handicapIndex}</div>
-              </div>
-              <span className="text-turf font-bold text-sm flex-shrink-0">+ Add</span>
-            </button>
+              <button
+                onClick={() => addFromRoster(r)}
+                className="flex-1 min-w-0 flex items-center gap-2.5 p-2.5 text-left"
+              >
+                <div className="w-[34px] h-[34px] rounded-full bg-surface-raised text-chalk-dim text-xs font-bold flex items-center justify-center flex-shrink-0">
+                  {r.name.split(" ").filter(Boolean).map(n => n[0]).join("") || "?"}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-semibold truncate">{r.name}</div>
+                  <div className="text-[11px] text-chalk-dim">Hcp {r.handicapIndex}</div>
+                </div>
+                <span className="text-turf font-bold text-sm flex-shrink-0">+ Add</span>
+              </button>
+              {confirmDeleteId === r.id ? (
+                <div className="flex items-center flex-shrink-0 pr-1.5 gap-1">
+                  <button
+                    onClick={() => handleDeleteFromRoster(r)}
+                    disabled={deletingId === r.id}
+                    className="px-2.5 py-1.5 rounded-md bg-flag text-white text-[11px] font-bold disabled:opacity-60"
+                  >
+                    {deletingId === r.id ? "…" : "Confirm"}
+                  </button>
+                  <button
+                    onClick={() => setConfirmDeleteId(null)}
+                    className="px-2.5 py-1.5 rounded-md bg-surface-raised text-chalk-dim text-[11px] font-bold"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setConfirmDeleteId(r.id)}
+                  aria-label={`Delete ${r.name} from roster`}
+                  className="px-3 py-2.5 flex-shrink-0 text-[11px] font-bold text-chalk-dim hover:text-flag"
+                >
+                  Delete
+                </button>
+              )}
+            </div>
           ))}
         </div>
       )}

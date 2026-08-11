@@ -171,8 +171,11 @@ create policy "open write" on groups for insert with check (true);
 create policy "open write" on group_players for insert with check (true);
 create policy "open write" on players for insert with check (true);
 create policy "open update" on players for update using (true);
+create policy "open delete" on players for delete using (true);
 
 -- Adding a course to the queue (see lib/rounds.ts createCourse())
 -- inserts a course + its standard 18 holes.
 create policy "open write" on courses for insert with check (true);
 create policy "open write" on holes for insert with check (true);
+create policy "open delete" on courses for delete using (true);
+create policy "open delete" on holes for delete using (true);

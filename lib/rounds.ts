@@ -92,6 +92,42 @@ export async function fetchTripRoster(tripId: string): Promise<Player[]> {
   return (data ?? []).map(p => ({ id: p.id, name: p.name, handicapIndex: p.handicap_index ?? 0 }));
 }
 
+// Postgres' foreign-key-violation code — used to turn "can't delete,
+// something still points at this row" into a friendly message instead
+// of a raw database error.
+const FK_VIOLATION = "23503";
+
+/**
+ * Deletes a course from the queue. Blocked by the database (and
+ * reported here as a friendly error) if any round has already used
+ * it — deleting would corrupt that round's history.
+ */
+export async function deleteCourse(courseId: string): Promise<void> {
+  const { error } = await supabase.from("courses").delete().eq("id", courseId);
+  if (error) {
+    if (error.code === FK_VIOLATION) {
+      throw new Error("Can't delete — this course has already been used in a round.");
+    }
+    throw new Error(`Couldn't delete the course: ${error.message}`);
+  }
+}
+
+/**
+ * Deletes a player from the trip roster. Blocked by the database if
+ * they've already recorded scores in a past round — deleting would
+ * corrupt that round's history. Removing them from a foursome
+ * they're only listed in (no scores yet) happens automatically.
+ */
+export async function deletePlayer(playerId: string): Promise<void> {
+  const { error } = await supabase.from("players").delete().eq("id", playerId);
+  if (error) {
+    if (error.code === FK_VIOLATION) {
+      throw new Error("Can't delete — this player already has scores recorded in a past round.");
+    }
+    throw new Error(`Couldn't delete the player: ${error.message}`);
+  }
+}
+
 export type RoundStatus = "upcoming" | "in_progress" | "completed";
 
 export type RoundSummary = {

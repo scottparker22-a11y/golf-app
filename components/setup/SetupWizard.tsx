@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { Player } from "@/lib/types";
 import {
   createRoundWithRoster,
+  deletePlayer,
   DEMO_TRIP_ID,
   fetchTripRoster,
   type RosterGroup,
@@ -65,6 +66,12 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
   const tabIndex = TABS.findIndex(t => t.id === tab);
   const isLastTab = tab === LAST_TAB;
 
+  const handleDeleteFromRoster = async (player: Player) => {
+    await deletePlayer(player.id);
+    setRoster(roster.filter(r => r.id !== player.id));
+    setPlayers(players.filter(p => p.id !== player.id));
+  };
+
   const handleFinish = async () => {
     if (!courseId) {
       setFinishError("Pick a course on the first step.");
@@ -121,7 +128,14 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
       </div>
 
       {tab === "course" && <CourseStep courseId={courseId} setCourseId={setCourseId} />}
-      {tab === "players" && <PlayersStep players={players} setPlayers={setPlayers} roster={roster} />}
+      {tab === "players" && (
+        <PlayersStep
+          players={players}
+          setPlayers={setPlayers}
+          roster={roster}
+          onDeleteFromRoster={handleDeleteFromRoster}
+        />
+      )}
       {tab === "teams" && (
         <TeamsStep players={players} assignment={teamAssignment} setAssignment={setTeamAssignment} />
       )}
