@@ -9,15 +9,12 @@ import {
 } from "@/lib/scoring";
 import { useLiveRound } from "@/lib/liveRound";
 
-export default function Leaderboard({ tripId }: { tripId: string }) {
+export default function Leaderboard({ roundId }: { roundId: string }) {
   const [view, setView] = useState<"team" | "individual">("team");
 
   // Live, shared with every other device watching this same round —
   // Supabase pushes any player's entered stroke here in real time.
-  // tripId is accepted for future multi-trip support; today every
-  // trip points at the same seeded demo round (see lib/liveRound.ts).
-  void tripId;
-  const { loading, error, players, holes, teams, holeScores } = useLiveRound();
+  const { loading, error, players, holes, teams, holeScores } = useLiveRound(roundId);
 
   const individual = useMemo(
     () => calculateIndividualLeaderboard(holeScores, players, holes),

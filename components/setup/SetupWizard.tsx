@@ -1,13 +1,21 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { Player } from "@/lib/types";
+import { createRoundWithRoster, DEMO_TRIP_ID, type RosterGroup, type RosterPlayer } from "@/lib/rounds";
 import PlayersStep from "./PlayersStep";
 import TeamsStep from "./TeamsStep";
 import FoursomesStep, { type Group } from "./FoursomesStep";
 import ScorekeeperStep from "./ScorekeeperStep";
 import RoundsStep, { type RoundDraft } from "./RoundsStep";
+
+function groupDisplayName(players: Player[], group: Group, index: number): string {
+  const names = group.playerIds
+    .map(id => players.find(p => p.id === id)?.name.trim())
+    .filter((n): n is string => !!n);
+  return names.length > 0 ? names.join(" & ") : `Group ${index + 1}`;
+}
 
 const TABS = [
   { id: "players", label: "1 · Players" },
@@ -22,6 +30,7 @@ type TabId = (typeof TABS)[number]["id"];
 const LAST_TAB: TabId = "rounds";
 
 export default function SetupWizard({ tripId }: { tripId: string }) {
+  const router = useRouter();
   const [tripName, setTripName] = useState(`Trip ${tripId}`);
   const [tab, setTab] = useState<TabId>("players");
 
@@ -31,8 +40,32 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
   const [scorekeepers, setScorekeepers] = useState<Record<string, string>>({});
   const [rounds, setRounds] = useState<RoundDraft[]>([]);
 
+  const [finishing, setFinishing] = useState(false);
+  const [finishError, setFinishError] = useState<string | null>(null);
+
   const tabIndex = TABS.findIndex(t => t.id === tab);
   const isLastTab = tab === LAST_TAB;
+
+  const handleFinish = async () => {
+    setFinishing(true);
+    setFinishError(null);
+    try {
+      const rosterPlayers: RosterPlayer[] = players.map(p => ({
+        localId: p.id,
+        name: p.name,
+        handicapIndex: p.handicapIndex,
+      }));
+      const rosterGroups: RosterGroup[] = groups.map((g, i) => ({
+        name: groupDisplayName(players, g, i),
+        localPlayerIds: g.playerIds,
+      }));
+      const newRoundId = await createRoundWithRoster(DEMO_TRIP_ID, rosterPlayers, rosterGroups);
+      router.push(`/trip/${tripId}/round/${newRoundId}/scorecard`);
+    } catch (e) {
+      setFinishError(e instanceof Error ? e.message : "Couldn't finish setup");
+      setFinishing(false);
+    }
+  };
 
   return (
     <main className="max-w-[460px] mx-auto min-h-screen pb-10">
@@ -81,16 +114,25 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
       <div className="px-5 pt-6">
         {isLastTab ? (
           <>
-            <Link
-              href={`/trip/${tripId}/leaderboard`}
-              className="block w-full text-center py-3.5 rounded-xl bg-turf text-fairway-950 font-bold text-[15px]"
+            <button
+              onClick={handleFinish}
+              disabled={finishing || players.length === 0}
+              className="block w-full text-center py-3.5 rounded-xl bg-turf text-fairway-950 font-bold text-[15px] disabled:opacity-60"
             >
-              Finish setup → View scorecard
-            </Link>
-            <p className="text-[11.5px] text-chalk-dim text-center mt-2 leading-relaxed">
-              Heads up: this demo build doesn't save your setup yet, so the scorecard shows
-              sample data rather than what you just entered.
-            </p>
+              {finishing ? "Saving…" : "Finish setup → View scorecard"}
+            </button>
+            {finishError ? (
+              <p className="text-[11.5px] text-flag text-center mt-2 leading-relaxed">{finishError}</p>
+            ) : players.length === 0 ? (
+              <p className="text-[11.5px] text-chalk-dim text-center mt-2 leading-relaxed">
+                Add at least one player on the Players step first.
+              </p>
+            ) : (
+              <p className="text-[11.5px] text-chalk-dim text-center mt-2 leading-relaxed">
+                This saves your players and foursomes as a real round — course/tee data isn't
+                wired up yet, so it uses the demo course for now.
+              </p>
+            )}
           </>
         ) : (
           <button

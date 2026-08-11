@@ -19,6 +19,9 @@ export default function Home() {
       <Link href="/trip/demo/scorecard" className="text-turf text-sm underline">
         Enter scores (scorecard)
       </Link>
+      <Link href="/trip/demo/rounds" className="text-turf text-sm underline">
+        Round history
+      </Link>
       <Link href="/trip/demo/setup" className="text-turf text-sm underline">
         Trip setup wizard
       </Link>

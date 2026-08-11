@@ -161,3 +161,12 @@ create policy "open read" on ryder_cup_tournaments for select using (true);
 create policy "open write" on hole_scores for insert with check (true);
 create policy "open update" on hole_scores for update using (true);
 create policy "open delete" on hole_scores for delete using (true);
+
+-- Starting a new round (see lib/rounds.ts) inserts a round + groups +
+-- group_players, and marks the previous round completed. Finishing
+-- the Setup Wizard also inserts new players for the roster entered.
+create policy "open write" on rounds for insert with check (true);
+create policy "open update" on rounds for update using (true);
+create policy "open write" on groups for insert with check (true);
+create policy "open write" on group_players for insert with check (true);
+create policy "open write" on players for insert with check (true);

@@ -16,8 +16,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "./supabase";
 import type { Hole, HoleScore, Player } from "./types";
-
-export const DEMO_ROUND_ID = "d0000000-0000-0000-0000-000000000001";
+import { DEMO_ROUND_ID } from "./rounds";
 
 export type TeamDef = { id: string; name: string; playerIds: string[] };
 

@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-export default function TripNav({ tripId }: { tripId: string }) {
+export default function TripNav({ tripId, roundId }: { tripId: string; roundId: string }) {
   const pathname = usePathname();
 
   const tabs = [
-    { href: `/trip/${tripId}/leaderboard`, label: "Leaderboard" },
-    { href: `/trip/${tripId}/scorecard`, label: "Scorecard" },
+    { href: `/trip/${tripId}/round/${roundId}/leaderboard`, label: "Leaderboard" },
+    { href: `/trip/${tripId}/round/${roundId}/scorecard`, label: "Scorecard" },
+    { href: `/trip/${tripId}/rounds`, label: "History" },
   ];
 
   return (

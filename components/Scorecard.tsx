@@ -4,13 +4,10 @@ import type { Hole } from "@/lib/types";
 import { approxCourseHandicap, strokesReceived } from "@/lib/scoring";
 import { useLiveRound } from "@/lib/liveRound";
 
-export default function Scorecard({ tripId }: { tripId: string }) {
-  // Live, shared with every other device scoring this same round —
-  // tripId is accepted for future multi-trip support; today every
-  // trip points at the same seeded demo round (see lib/liveRound.ts).
-  void tripId;
+export default function Scorecard({ roundId }: { roundId: string }) {
+  // Live, shared with every other device scoring this same round.
   const { loading, error, players, holes, teams, holeScores, setStroke, clearStroke } =
-    useLiveRound();
+    useLiveRound(roundId);
 
   const scoreFor = (playerId: string, holeNumber: number) =>
     holeScores.find(s => s.playerId === playerId && s.holeNumber === holeNumber)?.strokes;
