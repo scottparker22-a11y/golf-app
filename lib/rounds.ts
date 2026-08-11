@@ -137,13 +137,19 @@ export type RoundSummary = {
   status: RoundStatus;
 };
 
-/** All rounds for a trip, most recent first. */
+/**
+ * All rounds for a trip, most recent first. Ordered by created_at
+ * (not just `date`) since several rounds can share the same calendar
+ * date — without a real tiebreaker, "most recent" is ambiguous and
+ * things like "start a new round, copying the last one" can silently
+ * grab the wrong round.
+ */
 export async function fetchRounds(tripId: string): Promise<RoundSummary[]> {
   const { data, error } = await supabase
     .from("rounds")
     .select("id, date, status")
     .eq("trip_id", tripId)
-    .order("date", { ascending: false });
+    .order("created_at", { ascending: false });
   if (error) throw new Error(`Couldn't load rounds: ${error.message}`);
   return (data ?? []).map(r => ({ id: r.id, date: r.date, status: r.status as RoundStatus }));
 }

@@ -50,7 +50,12 @@ create table rounds (
   tee_name text not null default 'default', -- which tee this round's group played, joins to holes.tee_name
   date date not null,
   tee_time time,
-  status text not null default 'upcoming' check (status in ('upcoming', 'in_progress', 'completed'))
+  status text not null default 'upcoming' check (status in ('upcoming', 'in_progress', 'completed')),
+  -- `date` alone isn't unique enough to order by — several rounds can
+  -- share the same calendar date (e.g. testing, or a multi-round day).
+  -- created_at is the real tiebreaker for "which round is actually
+  -- most recent" (see lib/rounds.ts fetchRounds).
+  created_at timestamptz not null default now()
 );
 
 -- Players — kept trip-scoped rather than global users for v1 simplicity.
@@ -168,7 +173,9 @@ create policy "open delete" on hole_scores for delete using (true);
 create policy "open write" on rounds for insert with check (true);
 create policy "open update" on rounds for update using (true);
 create policy "open write" on groups for insert with check (true);
+create policy "open delete" on groups for delete using (true);
 create policy "open write" on group_players for insert with check (true);
+create policy "open delete" on group_players for delete using (true);
 create policy "open write" on players for insert with check (true);
 create policy "open update" on players for update using (true);
 create policy "open delete" on players for delete using (true);

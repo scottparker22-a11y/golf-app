@@ -66,17 +66,20 @@ async function fetchStaticRoundData(roundId: string): Promise<StaticRoundData> {
     strokeIndex: h.stroke_index,
   }));
 
-  const players: Player[] = (playersRes.data ?? []).map(p => ({
-    id: p.id,
-    name: p.name,
-    handicapIndex: p.handicap_index ?? 0,
-  }));
-
   const teams: TeamDef[] = ((groupsRes.data ?? []) as GroupRow[]).map(g => ({
     id: g.id,
     name: g.name ?? "Group",
     playerIds: (g.group_players ?? []).map(gp => gp.player_id),
   }));
+
+  // Players are stored trip-wide (the standing roster spans every
+  // round), but this round is only played by whoever's actually in
+  // its groups — scope down to that, or the leaderboard/skins would
+  // include everyone who's ever played the trip, not just this round.
+  const roundPlayerIds = new Set(teams.flatMap(t => t.playerIds));
+  const players: Player[] = (playersRes.data ?? [])
+    .filter(p => roundPlayerIds.has(p.id))
+    .map(p => ({ id: p.id, name: p.name, handicapIndex: p.handicap_index ?? 0 }));
 
   return { players, holes, teams, groupIds: teams.map(t => t.id) };
 }

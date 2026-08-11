@@ -42,7 +42,13 @@ export default function RoundsList({ tripId, tripDbId }: { tripId: string; tripD
     setCreating(true);
     setError(null);
     try {
-      const newRoundId = await createRound(tripDbId, rounds[0].id);
+      // Copy foursomes from whichever round is actually in progress —
+      // falling back to the most recent only if none is (e.g. every
+      // round's already completed). Rounds are ordered by created_at
+      // in fetchRounds, so rounds[0] is a safe fallback too, but the
+      // explicit in_progress check is what actually matters here.
+      const sourceRound = rounds.find(r => r.status === "in_progress") ?? rounds[0];
+      const newRoundId = await createRound(tripDbId, sourceRound.id);
       router.push(`/trip/${tripId}/round/${newRoundId}/scorecard`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't start a new round");
