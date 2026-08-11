@@ -12,6 +12,7 @@
 
 import { supabase } from "./supabase";
 import type { Player } from "./types";
+import type { SkinsGameConfig } from "./scoring";
 
 export const DEMO_TRIP_ID = "a0000000-0000-0000-0000-000000000001";
 export const DEMO_ROUND_ID = "d0000000-0000-0000-0000-000000000001";
@@ -153,6 +154,27 @@ export async function fetchCurrentRoundId(tripId: string): Promise<string> {
   return rounds.find(r => r.status === "in_progress")?.id ?? rounds[0]?.id ?? DEMO_ROUND_ID;
 }
 
+/** The round's Skins game config, if one was set up — null if Skins isn't being played. */
+export async function fetchSkinsGame(roundId: string): Promise<SkinsGameConfig | null> {
+  const { data, error } = await supabase
+    .from("games")
+    .select("config")
+    .eq("round_id", roundId)
+    .eq("type", "skins")
+    .maybeSingle();
+  if (error) throw new Error(`Couldn't load the skins game: ${error.message}`);
+  return (data?.config as SkinsGameConfig | undefined) ?? null;
+}
+
+/** Saves a round's Skins game config (only if Gross or Net is actually enabled). */
+export async function createSkinsGame(roundId: string, config: SkinsGameConfig): Promise<void> {
+  if (!config.gross && !config.net) return;
+  const { error } = await supabase
+    .from("games")
+    .insert({ round_id: roundId, type: "skins", name: "Skins", config });
+  if (error) throw new Error(`Couldn't save the skins game: ${error.message}`);
+}
+
 /**
  * Starts a new round for the trip, copying the foursomes (groups +
  * players) from an existing round so the new one is immediately
@@ -233,7 +255,8 @@ export async function createRoundWithRoster(
   tripId: string,
   courseId: string,
   players: RosterPlayer[],
-  groups: RosterGroup[]
+  groups: RosterGroup[],
+  skinsConfig?: SkinsGameConfig | null
 ): Promise<string> {
   const namedPlayers = players.filter(p => p.name.trim().length > 0);
   if (namedPlayers.length === 0) {
@@ -309,6 +332,10 @@ export async function createRoundWithRoster(
       .from("group_players")
       .insert(dbPlayerIds.map(playerId => ({ group_id: newGroup.id, player_id: playerId })));
     if (gpErr) throw new Error(`Couldn't add players to a foursome: ${gpErr.message}`);
+  }
+
+  if (skinsConfig) {
+    await createSkinsGame(newRound.id, skinsConfig);
   }
 
   return newRound.id;

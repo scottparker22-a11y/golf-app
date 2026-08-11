@@ -3,13 +3,19 @@
 import type { GolfFormat, Player } from "@/lib/types";
 
 // Formats where the 4 players in a group actually play as 2 teams of 2.
-// Stroke play is every player for themselves, so no pairing applies.
+// Stroke play is every player for themselves by default, but can opt
+// into "Teams of 2" the same way (see strokePlayTeams below).
 const TEAM_FORMATS: GolfFormat[] = ["best_ball", "scramble", "alt_shot"];
 
 export type Group = {
   id: string;
   playerIds: string[];
   format: GolfFormat;
+  // Only meaningful when format === "stroke_play" — everyone still
+  // posts their own individual score either way; this only decides
+  // whether the foursome also gets split into 2-player sub-teams for
+  // team-score purposes.
+  strokePlayTeams: "none" | "pairs";
   // playerId -> "1" | "2", which of the two teammate pairs they're on
   // within this foursome. Independent of any trip-wide Ryder Cup teams —
   // this is for picking partners on rounds/games that aren't Ryder Cup.
@@ -22,6 +28,10 @@ const FORMATS: { value: GolfFormat; label: string }[] = [
   { value: "scramble", label: "Scramble" },
   { value: "alt_shot", label: "Alt Shot" },
 ];
+
+function usesPairing(group: Group): boolean {
+  return TEAM_FORMATS.includes(group.format) || (group.format === "stroke_play" && group.strokePlayTeams === "pairs");
+}
 
 function defaultPairings(ids: string[]): Record<string, "1" | "2"> {
   const pairings: Record<string, "1" | "2"> = {};
@@ -50,6 +60,7 @@ export default function FoursomesStep({
         id: crypto.randomUUID(),
         playerIds,
         format: "stroke_play",
+        strokePlayTeams: "none",
         pairings: defaultPairings(playerIds),
       });
     }
@@ -61,10 +72,38 @@ export default function FoursomesStep({
     return list.length ? (list.reduce((s, p) => s + p.handicapIndex, 0) / list.length).toFixed(1) : "—";
   };
 
+  const movePlayerToGroup = (playerId: string, fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex) return;
+    const next = groups.map(g => ({ ...g, playerIds: [...g.playerIds], pairings: { ...g.pairings } }));
+    next[fromIndex].playerIds = next[fromIndex].playerIds.filter(id => id !== playerId);
+    delete next[fromIndex].pairings[playerId];
+    next[toIndex].playerIds = [...next[toIndex].playerIds, playerId];
+    next[toIndex].pairings[playerId] = "1";
+    setGroups(next);
+  };
+
+  const MoveSelect = ({ playerId, groupIndex }: { playerId: string; groupIndex: number }) =>
+    groups.length > 1 ? (
+      <select
+        value={groupIndex}
+        onChange={e => movePlayerToGroup(playerId, groupIndex, Number(e.target.value))}
+        onClick={e => e.stopPropagation()}
+        aria-label="Move to a different foursome"
+        className="bg-surface-raised border border-[color:var(--border-strong)] rounded-md text-[10.5px] font-semibold text-chalk-dim px-1.5 py-1 flex-shrink-0"
+      >
+        {groups.map((_, i) => (
+          <option key={i} value={i}>
+            {i === groupIndex ? `Group ${i + 1}` : `→ Group ${i + 1}`}
+          </option>
+        ))}
+      </select>
+    ) : null;
+
   return (
     <div className="px-5 pt-4">
       <p className="text-[13px] text-chalk-dim leading-relaxed mb-4">
-        Groups for the round — auto-fill spreads handicaps evenly, or build them manually.
+        Groups for the round — auto-fill spreads handicaps evenly, or build them manually. Use
+        the group dropdown next to a player to move them to a different foursome.
       </p>
 
       <button
@@ -101,7 +140,34 @@ export default function FoursomesStep({
             ))}
           </div>
 
-          {TEAM_FORMATS.includes(group.format) ? (
+          {group.format === "stroke_play" && (
+            <div className="flex gap-1.5 mb-3">
+              {(
+                [
+                  { value: "none" as const, label: "No Teams" },
+                  { value: "pairs" as const, label: "Teams of 2" },
+                ]
+              ).map(opt => (
+                <button
+                  key={opt.value}
+                  onClick={() => {
+                    const next = [...groups];
+                    next[gi] = { ...group, strokePlayTeams: opt.value };
+                    setGroups(next);
+                  }}
+                  className={`flex-1 text-[11px] font-bold px-2.5 py-1.5 rounded-lg border ${
+                    group.strokePlayTeams === opt.value
+                      ? "bg-sand/15 border-sand text-sand"
+                      : "bg-surface-raised text-chalk-dim border-[color:var(--border-strong)]"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {usesPairing(group) ? (
             <>
               <div className="text-[11px] font-semibold uppercase tracking-wide text-chalk-dim mb-2">
                 Teammates for this foursome
@@ -116,8 +182,8 @@ export default function FoursomesStep({
                         const p = players.find(pl => pl.id === id);
                         if (!p) return null;
                         return (
-                          <div key={id} className="flex items-center gap-1.5 mb-1.5">
-                            <div className="text-[12px] font-semibold flex-1 truncate">{p.name}</div>
+                          <div key={id} className="flex items-center gap-1.5 mb-1.5 flex-wrap">
+                            <div className="text-[12px] font-semibold flex-1 truncate min-w-0">{p.name}</div>
                             <button
                               onClick={() => {
                                 const next = [...groups];
@@ -132,8 +198,9 @@ export default function FoursomesStep({
                               }}
                               className="text-[10px] text-turf font-bold flex-shrink-0"
                             >
-                              move
+                              swap
                             </button>
+                            <MoveSelect playerId={id} groupIndex={gi} />
                           </div>
                         );
                       })}
@@ -147,8 +214,9 @@ export default function FoursomesStep({
               if (!p) return null;
               return (
                 <div key={id} className="flex items-center gap-2 bg-surface-raised rounded-lg px-2.5 py-1.5 mb-1.5">
-                  <div className="text-[12.5px] font-semibold flex-1">{p.name}</div>
-                  <div className="text-[11px] text-chalk-dim font-mono">{p.handicapIndex}</div>
+                  <div className="text-[12.5px] font-semibold flex-1 min-w-0 truncate">{p.name}</div>
+                  <div className="text-[11px] text-chalk-dim font-mono flex-shrink-0">{p.handicapIndex}</div>
+                  <MoveSelect playerId={id} groupIndex={gi} />
                 </div>
               );
             })

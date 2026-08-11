@@ -179,3 +179,7 @@ create policy "open write" on courses for insert with check (true);
 create policy "open write" on holes for insert with check (true);
 create policy "open delete" on courses for delete using (true);
 create policy "open delete" on holes for delete using (true);
+
+-- Setting up the Skins game for a round (see lib/rounds.ts
+-- createSkinsGame()) inserts one row into games.
+create policy "open write" on games for insert with check (true);

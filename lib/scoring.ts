@@ -8,8 +8,15 @@
 import type { HoleScore, Hole, Player } from "./types";
 
 // ── Shared utility: handicap strokes ───────────────────────────
+// Handles course handicaps above 18: every hole gets its normal
+// stroke (if strokeIndex <= handicap), and holes with a low enough
+// stroke index get a second stroke once the handicap exceeds 18.
 export function strokesReceived(hole: Hole, courseHandicap: number): number {
-  return hole.strokeIndex <= courseHandicap ? 1 : 0;
+  let strokes = hole.strokeIndex <= courseHandicap ? 1 : 0;
+  if (courseHandicap > 18 && courseHandicap - 18 >= hole.strokeIndex) {
+    strokes += 1;
+  }
+  return strokes;
 }
 
 /**
@@ -31,17 +38,35 @@ export type SkinsConfig = {
   carryover: boolean;
 };
 
+// "pending" — not every player has posted a score for this hole yet,
+// so it can't be judged (the lowest score so far would be misleading).
+// "tied" — everyone's in, two+ players tied for lowest; skin is
+// halved (lost) or carried to the next hole depending on `carryover`.
+// "won" — a single player had the outright lowest score.
+export type SkinsHoleStatus = "pending" | "won" | "tied";
+
+export type SkinsHoleResult = {
+  hole: number;
+  status: SkinsHoleStatus;
+  winnerId: string | null;
+  /** 1 plus any carried-over skins from prior ties — only nonzero when status === "won". */
+  skinsWon: number;
+  /** How many skins are riding on this hole right now (1 + carry-in) — meaningful for every status, so the live board can show a dollar value even on pending/tied holes. */
+  skinsAtStake: number;
+};
+
 export function calculateSkins(
   scores: HoleScore[],
   players: Player[],
   holes: Hole[],
   config: SkinsConfig,
   courseHandicaps: Record<string, number>
-) {
+): SkinsHoleResult[] {
   let carriedSkins = 0;
-  const results: { hole: number; winnerId: string | null; skinsWon: number }[] = [];
+  const results: SkinsHoleResult[] = [];
 
   for (const hole of holes) {
+    const skinsAtStake = 1 + carriedSkins;
     const holeScores = scores.filter(s => s.holeNumber === hole.number && s.playerId);
     const scored = holeScores.map(s => {
       const val = config.usesHandicap
@@ -50,8 +75,11 @@ export function calculateSkins(
       return { playerId: s.playerId!, val };
     });
 
-    if (scored.length === 0) {
-      results.push({ hole: hole.number, winnerId: null, skinsWon: 0 });
+    // Only judge a hole once every player in the round has posted a
+    // score for it — otherwise "lowest score so far" doesn't mean
+    // the hole is actually decided.
+    if (players.length === 0 || scored.length < players.length) {
+      results.push({ hole: hole.number, status: "pending", winnerId: null, skinsWon: 0, skinsAtStake });
       continue;
     }
 
@@ -59,11 +87,16 @@ export function calculateSkins(
     const winners = scored.filter(s => s.val === min);
 
     if (winners.length === 1) {
-      const skinsWon = 1 + carriedSkins;
-      results.push({ hole: hole.number, winnerId: winners[0].playerId, skinsWon });
+      results.push({
+        hole: hole.number,
+        status: "won",
+        winnerId: winners[0].playerId,
+        skinsWon: skinsAtStake,
+        skinsAtStake,
+      });
       carriedSkins = 0;
     } else {
-      results.push({ hole: hole.number, winnerId: null, skinsWon: 0 });
+      results.push({ hole: hole.number, status: "tied", winnerId: null, skinsWon: 0, skinsAtStake });
       if (config.carryover) carriedSkins += 1;
     }
   }
@@ -71,13 +104,117 @@ export function calculateSkins(
 }
 
 /** Convenience: total skins won per player, for badges on the leaderboard. */
-export function skinsWonByPlayer(skinsResults: ReturnType<typeof calculateSkins>) {
+export function skinsWonByPlayer(skinsResults: SkinsHoleResult[]) {
   const totals: Record<string, number> = {};
   for (const r of skinsResults) {
     if (!r.winnerId) continue;
     totals[r.winnerId] = (totals[r.winnerId] ?? 0) + r.skinsWon;
   }
   return totals;
+}
+
+// ── SKINS PAYOUT — pricing, pot, and per-player cash ────────────
+// Model A: a fixed dollar amount per skin — the pot floats with how
+// many skins actually get won.
+// Model B: a fixed pot (players × buy-in) split evenly across every
+// skin won, so the per-skin value isn't known until skins are
+// counted — and if literally zero skins were won, everyone gets
+// refunded rather than dividing by zero.
+export type SkinsPricing =
+  | { model: "per_skin"; amountPerSkin: number }
+  | { model: "flat_buyin"; buyInPerPlayer: number };
+
+export type SkinsGameConfig = {
+  gross: boolean;
+  net: boolean;
+  rollover: boolean;
+  pricing: SkinsPricing;
+};
+
+export type SkinsPlayerPayout = {
+  playerId: string;
+  name: string;
+  grossSkins: number;
+  netSkins: number;
+  totalSkins: number;
+  cash: number;
+};
+
+export type SkinsPayoutSummary = {
+  grossResults: SkinsHoleResult[];
+  netResults: SkinsHoleResult[];
+  totalSkinsAwarded: number;
+  pot: number;
+  /** Dollars per skin — fixed under Model A, computed (and provisional until the round finishes) under Model B. */
+  perSkinValue: number;
+  /** Model B only: zero skins were won across the whole round, so refund every player's buy-in instead of dividing by zero. */
+  refundAll: boolean;
+  players: SkinsPlayerPayout[];
+};
+
+function round2(n: number): number {
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
+export function calculateSkinsPayout(
+  scores: HoleScore[],
+  players: Player[],
+  holes: Hole[],
+  config: SkinsGameConfig,
+  courseHandicaps: Record<string, number>
+): SkinsPayoutSummary {
+  const grossResults = config.gross
+    ? calculateSkins(scores, players, holes, { usesHandicap: false, carryover: config.rollover }, courseHandicaps)
+    : [];
+  const netResults = config.net
+    ? calculateSkins(scores, players, holes, { usesHandicap: true, carryover: config.rollover }, courseHandicaps)
+    : [];
+
+  const grossByPlayer = skinsWonByPlayer(grossResults);
+  const netByPlayer = skinsWonByPlayer(netResults);
+
+  const totalGrossSkins = Object.values(grossByPlayer).reduce((sum, n) => sum + n, 0);
+  const totalNetSkins = Object.values(netByPlayer).reduce((sum, n) => sum + n, 0);
+  // A player can win both the gross and net skin on the same hole —
+  // these two tracks run independently and their totals just add.
+  const totalSkinsAwarded = totalGrossSkins + totalNetSkins;
+
+  let pot: number;
+  let perSkinValue: number;
+  let refundAll = false;
+
+  if (config.pricing.model === "per_skin") {
+    perSkinValue = config.pricing.amountPerSkin;
+    pot = round2(totalSkinsAwarded * perSkinValue);
+  } else {
+    pot = round2(config.pricing.buyInPerPlayer * players.length);
+    if (totalSkinsAwarded === 0) {
+      refundAll = true;
+      perSkinValue = 0;
+    } else {
+      perSkinValue = pot / totalSkinsAwarded;
+    }
+  }
+
+  const playerPayouts: SkinsPlayerPayout[] = players
+    .map(p => {
+      const grossSkins = grossByPlayer[p.id] ?? 0;
+      const netSkins = netByPlayer[p.id] ?? 0;
+      const totalSkins = grossSkins + netSkins;
+      const cash = refundAll ? 0 : round2(totalSkins * perSkinValue);
+      return { playerId: p.id, name: p.name, grossSkins, netSkins, totalSkins, cash };
+    })
+    .sort((a, b) => b.cash - a.cash || b.totalSkins - a.totalSkins);
+
+  return {
+    grossResults,
+    netResults,
+    totalSkinsAwarded,
+    pot,
+    perSkinValue: round2(perSkinValue),
+    refundAll,
+    players: playerPayouts,
+  };
 }
 
 // ── STABLEFORD ──────────────────────────────────────────────────

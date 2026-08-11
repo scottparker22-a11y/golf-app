@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Player } from "@/lib/types";
+import type { SkinsGameConfig } from "@/lib/scoring";
 import {
   createRoundWithRoster,
   deletePlayer,
@@ -15,7 +16,15 @@ import CourseStep from "./CourseStep";
 import PlayersStep from "./PlayersStep";
 import TeamsStep from "./TeamsStep";
 import FoursomesStep, { type Group } from "./FoursomesStep";
+import SkinsStep from "./SkinsStep";
 import ScorekeeperStep from "./ScorekeeperStep";
+
+const DEFAULT_SKINS_CONFIG: SkinsGameConfig = {
+  gross: false,
+  net: false,
+  rollover: true,
+  pricing: { model: "per_skin", amountPerSkin: 5 },
+};
 
 function groupDisplayName(players: Player[], group: Group, index: number): string {
   const names = group.playerIds
@@ -29,7 +38,8 @@ const TABS = [
   { id: "players", label: "2 · Players" },
   { id: "teams", label: "3 · Ryder Cup Teams" },
   { id: "foursomes", label: "4 · Foursomes" },
-  { id: "scorer", label: "5 · Scorekeeper" },
+  { id: "skins", label: "5 · Skins" },
+  { id: "scorer", label: "6 · Scorekeeper" },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -45,6 +55,7 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
   const [players, setPlayers] = useState<Player[]>([]);
   const [teamAssignment, setTeamAssignment] = useState<Record<string, "A" | "B">>({});
   const [groups, setGroups] = useState<Group[]>([]);
+  const [skinsConfig, setSkinsConfig] = useState<SkinsGameConfig>(DEFAULT_SKINS_CONFIG);
   const [scorekeepers, setScorekeepers] = useState<Record<string, string>>({});
 
   const [roster, setRoster] = useState<Player[]>([]);
@@ -90,7 +101,13 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
         name: groupDisplayName(players, g, i),
         localPlayerIds: g.playerIds,
       }));
-      const newRoundId = await createRoundWithRoster(DEMO_TRIP_ID, courseId, rosterPlayers, rosterGroups);
+      const newRoundId = await createRoundWithRoster(
+        DEMO_TRIP_ID,
+        courseId,
+        rosterPlayers,
+        rosterGroups,
+        skinsConfig
+      );
       router.push(`/trip/${tripId}/round/${newRoundId}/scorecard`);
     } catch (e) {
       setFinishError(e instanceof Error ? e.message : "Couldn't finish setup");
@@ -140,6 +157,9 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
         <TeamsStep players={players} assignment={teamAssignment} setAssignment={setTeamAssignment} />
       )}
       {tab === "foursomes" && <FoursomesStep players={players} groups={groups} setGroups={setGroups} />}
+      {tab === "skins" && (
+        <SkinsStep config={skinsConfig} setConfig={setSkinsConfig} playerCount={players.length} />
+      )}
       {tab === "scorer" && (
         <ScorekeeperStep
           players={players}
