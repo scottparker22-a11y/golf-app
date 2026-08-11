@@ -1,13 +1,12 @@
 import Scorecard from "@/components/Scorecard";
 import TripNav from "@/components/TripNav";
-import { demoHoles, demoPlayers, demoHoleScores, demoTeams } from "@/lib/demoData";
 
-// TODO: same as the leaderboard page — swap demo data for real
-// Supabase queries once your project is deployed and the setup
-// wizard is wired to save real players/teams/rounds.
+// Live data — players, holes, teams, and hole_scores all come from
+// Supabase via the Scorecard component's useLiveRound() hook (see
+// lib/liveRound.ts), so strokes entered here sync to every device
+// live. Every tripId currently points at the same seeded demo round
+// (supabase/seed.sql) until a real "create a trip" flow exists.
 export default function ScorecardPage({ params }: { params: { tripId: string } }) {
-  const teams = Object.entries(demoTeams).map(([id, t]) => ({ id, ...t }));
-
   return (
     <main className="max-w-[460px] mx-auto min-h-screen pb-10">
       <div className="mow-stripes px-5 pt-7 pb-6 border-b border-[color:var(--border)]">
@@ -21,13 +20,7 @@ export default function ScorecardPage({ params }: { params: { tripId: string } }
 
       <TripNav tripId={params.tripId} />
 
-      <Scorecard
-        tripId={params.tripId}
-        players={demoPlayers}
-        holes={demoHoles}
-        teams={teams}
-        initialHoleScores={demoHoleScores}
-      />
+      <Scorecard tripId={params.tripId} />
     </main>
   );
 }

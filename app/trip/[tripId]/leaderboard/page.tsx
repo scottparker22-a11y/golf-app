@@ -1,18 +1,14 @@
 import Leaderboard from "@/components/Leaderboard";
 import GameChips from "@/components/GameChips";
 import TripNav from "@/components/TripNav";
-import { demoHoles, demoPlayers, demoHoleScores, demoTeams } from "@/lib/demoData";
 
-// TODO: replace demo data with real Supabase queries once your
-// project is deployed, e.g.:
-//   const { data: holeScores } = await supabase
-//     .from("hole_scores")
-//     .select("*")
-//     .in("group_id", groupIdsForThisRound);
-// For live updates, wrap this page's data-fetching in a client
-// component that calls subscribeToHoleScores() from lib/supabase.ts.
+// Live data — players, holes, teams, and hole_scores all come from
+// Supabase via the Leaderboard component's useLiveRound() hook (see
+// lib/liveRound.ts), including realtime updates as scores are entered
+// on any device. Every tripId currently points at the same seeded
+// demo round (supabase/seed.sql) until a real "create a trip" flow
+// exists.
 export default function LeaderboardPage({ params }: { params: { tripId: string } }) {
-  const teams = Object.entries(demoTeams).map(([id, t]) => ({ id, ...t }));
   const skinsPot = 180;
 
   return (
@@ -28,13 +24,7 @@ export default function LeaderboardPage({ params }: { params: { tripId: string }
 
       <TripNav tripId={params.tripId} />
 
-      <Leaderboard
-        tripId={params.tripId}
-        players={demoPlayers}
-        holes={demoHoles}
-        initialHoleScores={demoHoleScores}
-        teams={teams}
-      />
+      <Leaderboard tripId={params.tripId} />
 
       <GameChips skinsPot={skinsPot} />
     </main>

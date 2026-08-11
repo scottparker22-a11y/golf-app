@@ -130,10 +130,16 @@ create table games (
 alter publication supabase_realtime add table hole_scores;
 
 -- ── RLS (sketch — tighten before real users touch this) ───────
+-- Supabase enables RLS by default on every new table (even ones this
+-- file doesn't explicitly enable it on), so every table needs an
+-- explicit read policy or the anon key sees nothing from it.
 alter table trips enable row level security;
+alter table courses enable row level security;
+alter table holes enable row level security;
 alter table rounds enable row level security;
 alter table players enable row level security;
 alter table groups enable row level security;
+alter table group_players enable row level security;
 alter table hole_scores enable row level security;
 alter table games enable row level security;
 alter table ryder_cup_tournaments enable row level security;
@@ -142,12 +148,16 @@ alter table ryder_cup_tournaments enable row level security;
 -- on data security). Tighten to created_by / invited-player checks
 -- before this goes beyond your friend group.
 create policy "open read" on trips for select using (true);
+create policy "open read" on courses for select using (true);
+create policy "open read" on holes for select using (true);
 create policy "open read" on rounds for select using (true);
 create policy "open read" on players for select using (true);
 create policy "open read" on groups for select using (true);
+create policy "open read" on group_players for select using (true);
 create policy "open read" on hole_scores for select using (true);
 create policy "open read" on games for select using (true);
 create policy "open read" on ryder_cup_tournaments for select using (true);
 
 create policy "open write" on hole_scores for insert with check (true);
 create policy "open update" on hole_scores for update using (true);
+create policy "open delete" on hole_scores for delete using (true);

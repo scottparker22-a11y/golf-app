@@ -1,35 +1,23 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { Hole, HoleScore, Player } from "@/lib/types";
 import {
   approxCourseHandicap,
   calculateIndividualLeaderboard,
   calculateSkins,
   skinsWonByPlayer,
 } from "@/lib/scoring";
-import { useHoleScores } from "@/lib/tripStore";
+import { useLiveRound } from "@/lib/liveRound";
 
-type TeamDef = { id: string; name: string; playerIds: string[] };
-
-export default function Leaderboard({
-  tripId,
-  players,
-  holes,
-  initialHoleScores,
-  teams,
-}: {
-  tripId: string;
-  players: Player[];
-  holes: Hole[];
-  initialHoleScores: HoleScore[];
-  teams: TeamDef[];
-}) {
+export default function Leaderboard({ tripId }: { tripId: string }) {
   const [view, setView] = useState<"team" | "individual">("team");
 
-  // Reads whatever's been entered on the Scorecard for this trip (same
-  // browser), falling back to initialHoleScores until anything's saved.
-  const { holeScores } = useHoleScores(tripId, initialHoleScores);
+  // Live, shared with every other device watching this same round —
+  // Supabase pushes any player's entered stroke here in real time.
+  // tripId is accepted for future multi-trip support; today every
+  // trip points at the same seeded demo round (see lib/liveRound.ts).
+  void tripId;
+  const { loading, error, players, holes, teams, holeScores } = useLiveRound();
 
   const individual = useMemo(
     () => calculateIndividualLeaderboard(holeScores, players, holes),
@@ -75,6 +63,17 @@ export default function Leaderboard({
 
   const formatScore = (n: number) => (n === 0 ? "E" : n > 0 ? `+${n}` : `${n}`);
   const scoreColor = (n: number) => (n < 0 ? "text-turf" : "text-chalk");
+
+  if (loading) {
+    return <div className="px-5 pt-8 text-sm text-chalk-dim">Loading live leaderboard…</div>;
+  }
+  if (error) {
+    return (
+      <div className="mx-5 mt-4 p-3 bg-flag/10 border border-flag/30 rounded-xl text-[12.5px] text-flag">
+        Couldn&apos;t load the round: {error}
+      </div>
+    );
+  }
 
   return (
     <div>

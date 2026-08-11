@@ -1,25 +1,16 @@
 "use client";
 
-import type { Hole, HoleScore, Player } from "@/lib/types";
+import type { Hole } from "@/lib/types";
 import { approxCourseHandicap, strokesReceived } from "@/lib/scoring";
-import { useHoleScores } from "@/lib/tripStore";
+import { useLiveRound } from "@/lib/liveRound";
 
-type TeamDef = { id: string; name: string; playerIds: string[] };
-
-export default function Scorecard({
-  tripId,
-  players,
-  holes,
-  teams,
-  initialHoleScores,
-}: {
-  tripId: string;
-  players: Player[];
-  holes: Hole[];
-  teams: TeamDef[];
-  initialHoleScores: HoleScore[];
-}) {
-  const { holeScores, setStroke, clearStroke } = useHoleScores(tripId, initialHoleScores);
+export default function Scorecard({ tripId }: { tripId: string }) {
+  // Live, shared with every other device scoring this same round —
+  // tripId is accepted for future multi-trip support; today every
+  // trip points at the same seeded demo round (see lib/liveRound.ts).
+  void tripId;
+  const { loading, error, players, holes, teams, holeScores, setStroke, clearStroke } =
+    useLiveRound();
 
   const scoreFor = (playerId: string, holeNumber: number) =>
     holeScores.find(s => s.playerId === playerId && s.holeNumber === holeNumber)?.strokes;
@@ -69,11 +60,22 @@ export default function Scorecard({
   const subtotalCellClass =
     "px-1.5 py-1.5 text-center font-mono font-bold bg-surface-raised border-l border-[color:var(--border-strong)]";
 
+  if (loading) {
+    return <div className="px-5 pt-8 text-sm text-chalk-dim">Loading scorecard…</div>;
+  }
+  if (error) {
+    return (
+      <div className="mx-5 mt-4 p-3 bg-flag/10 border border-flag/30 rounded-xl text-[12.5px] text-flag">
+        Couldn&apos;t load the round: {error}
+      </div>
+    );
+  }
+
   return (
     <div className="px-5 pt-4 pb-8">
       <p className="text-[13px] text-chalk-dim leading-relaxed mb-2">
-        Tap a box and enter strokes for each hole. Saves as you go — everyone scoring on this
-        same phone/browser will see it update on the leaderboard.
+        Tap a box and enter strokes for each hole. Saves as you go — everyone in the trip sees
+        it update live on their own phone, no refresh needed.
       </p>
       <p className="text-[11.5px] text-chalk-dim leading-relaxed mb-4 flex items-center gap-1.5">
         <span className="inline-block w-[6px] h-[6px] rounded-full bg-sand" />
