@@ -11,11 +11,86 @@
 // ─────────────────────────────────────────────────────────────
 
 import { supabase } from "./supabase";
+import type { Player } from "./types";
 
 export const DEMO_TRIP_ID = "a0000000-0000-0000-0000-000000000001";
 export const DEMO_ROUND_ID = "d0000000-0000-0000-0000-000000000001";
 export const DEMO_COURSE_ID = "c0000000-0000-0000-0000-000000000001";
 export const DEMO_TEE_NAME = "default";
+
+// Standard par/stroke-index layout used for any course created through
+// the app, since real course-data autofill isn't wired up yet (see
+// lib/courseData.ts) — every new course gets a playable 18 holes
+// immediately instead of an empty scorecard.
+const STANDARD_HOLES: { number: number; par: number; strokeIndex: number }[] = [
+  { number: 1, par: 4, strokeIndex: 7 },
+  { number: 2, par: 3, strokeIndex: 15 },
+  { number: 3, par: 5, strokeIndex: 3 },
+  { number: 4, par: 4, strokeIndex: 11 },
+  { number: 5, par: 4, strokeIndex: 1 },
+  { number: 6, par: 3, strokeIndex: 17 },
+  { number: 7, par: 4, strokeIndex: 9 },
+  { number: 8, par: 5, strokeIndex: 5 },
+  { number: 9, par: 4, strokeIndex: 13 },
+  { number: 10, par: 4, strokeIndex: 8 },
+  { number: 11, par: 3, strokeIndex: 16 },
+  { number: 12, par: 5, strokeIndex: 4 },
+  { number: 13, par: 4, strokeIndex: 12 },
+  { number: 14, par: 4, strokeIndex: 2 },
+  { number: 15, par: 3, strokeIndex: 18 },
+  { number: 16, par: 4, strokeIndex: 10 },
+  { number: 17, par: 5, strokeIndex: 6 },
+  { number: 18, par: 4, strokeIndex: 14 },
+];
+
+export type CourseSummary = { id: string; name: string; location: string | null };
+
+/** The preloaded queue of courses to pick from, alphabetical. */
+export async function fetchCourses(): Promise<CourseSummary[]> {
+  const { data, error } = await supabase.from("courses").select("id, name, location").order("name");
+  if (error) throw new Error(`Couldn't load courses: ${error.message}`);
+  return data ?? [];
+}
+
+/**
+ * Adds a new course to the queue with a standard 18-hole layout, so
+ * it's immediately playable. Returns the new course id.
+ */
+export async function createCourse(name: string, location: string): Promise<string> {
+  const trimmedName = name.trim();
+  if (!trimmedName) throw new Error("Give the course a name.");
+
+  const { data: course, error: courseErr } = await supabase
+    .from("courses")
+    .insert({ name: trimmedName, location: location.trim() || null })
+    .select("id")
+    .single();
+  if (courseErr || !course) throw new Error(courseErr?.message ?? "Couldn't add the course");
+
+  const { error: holesErr } = await supabase.from("holes").insert(
+    STANDARD_HOLES.map(h => ({
+      course_id: course.id,
+      tee_name: DEMO_TEE_NAME,
+      number: h.number,
+      par: h.par,
+      stroke_index: h.strokeIndex,
+    }))
+  );
+  if (holesErr) throw new Error(`Couldn't set up the course's holes: ${holesErr.message}`);
+
+  return course.id;
+}
+
+/** The trip's standing player roster — build it once, reuse every round. */
+export async function fetchTripRoster(tripId: string): Promise<Player[]> {
+  const { data, error } = await supabase
+    .from("players")
+    .select("id, name, handicap_index")
+    .eq("trip_id", tripId)
+    .order("name");
+  if (error) throw new Error(`Couldn't load the roster: ${error.message}`);
+  return (data ?? []).map(p => ({ id: p.id, name: p.name, handicapIndex: p.handicap_index ?? 0 }));
+}
 
 export type RoundStatus = "upcoming" | "in_progress" | "completed";
 
@@ -106,41 +181,55 @@ export async function createRound(tripId: string, copyGroupsFromRoundId: string)
   return newRound.id;
 }
 
-export type RosterPlayer = { localId: string; name: string; handicapIndex: number };
+// Set when a roster entry is an existing trip player being reused —
+// present means "use this id, don't insert a new row."
+export type RosterPlayer = { localId: string; name: string; handicapIndex: number; existingId?: string };
 export type RosterGroup = { name: string; localPlayerIds: string[] };
 
 /**
- * Creates a brand-new round from a roster entered in the Setup
- * Wizard — real players, real foursomes, not the seeded demo data.
- * Any round still marked in_progress for this trip is closed out
- * first. Course/tee autofill isn't wired up yet (see
- * lib/courseData.ts), so every round currently uses the same demo
- * course/tee.
+ * Creates a brand-new round from the roster + foursomes built in the
+ * Setup Wizard. Roster entries with an `existingId` (picked from the
+ * trip's standing roster) are reused as-is rather than duplicated;
+ * only genuinely new players get inserted. Any round still marked
+ * in_progress for this trip is closed out first.
  */
 export async function createRoundWithRoster(
   tripId: string,
+  courseId: string,
   players: RosterPlayer[],
   groups: RosterGroup[]
 ): Promise<string> {
   const namedPlayers = players.filter(p => p.name.trim().length > 0);
   if (namedPlayers.length === 0) {
-    throw new Error("Add at least one player's name before finishing setup.");
+    throw new Error("Add at least one player before finishing setup.");
   }
 
-  const { data: insertedPlayers, error: playersErr } = await supabase
-    .from("players")
-    .insert(
-      namedPlayers.map(p => ({ trip_id: tripId, name: p.name.trim(), handicap_index: p.handicapIndex }))
-    )
-    .select("id");
-  if (playersErr || !insertedPlayers || insertedPlayers.length !== namedPlayers.length) {
-    throw new Error(playersErr?.message ?? "Couldn't save players");
-  }
-
-  // Supabase preserves insert-array order in the returned rows, so
-  // pairing by index maps each wizard-local id to its new DB id.
   const idMap = new Map<string, string>();
-  namedPlayers.forEach((p, i) => idMap.set(p.localId, insertedPlayers[i].id));
+
+  const toInsert = namedPlayers.filter(p => !p.existingId);
+  if (toInsert.length > 0) {
+    const { data: insertedPlayers, error: playersErr } = await supabase
+      .from("players")
+      .insert(toInsert.map(p => ({ trip_id: tripId, name: p.name.trim(), handicap_index: p.handicapIndex })))
+      .select("id");
+    if (playersErr || !insertedPlayers || insertedPlayers.length !== toInsert.length) {
+      throw new Error(playersErr?.message ?? "Couldn't save players");
+    }
+    // Supabase preserves insert-array order in the returned rows, so
+    // pairing by index maps each wizard-local id to its new DB id.
+    toInsert.forEach((p, i) => idMap.set(p.localId, insertedPlayers[i].id));
+  }
+
+  for (const p of namedPlayers) {
+    if (!p.existingId) continue;
+    idMap.set(p.localId, p.existingId);
+    // Keep the roster's handicap current if it was edited this round.
+    const { error: updateErr } = await supabase
+      .from("players")
+      .update({ handicap_index: p.handicapIndex, name: p.name.trim() })
+      .eq("id", p.existingId);
+    if (updateErr) throw new Error(`Couldn't update ${p.name}: ${updateErr.message}`);
+  }
 
   const { error: closeErr } = await supabase
     .from("rounds")
@@ -153,7 +242,7 @@ export async function createRoundWithRoster(
     .from("rounds")
     .insert({
       trip_id: tripId,
-      course_id: DEMO_COURSE_ID,
+      course_id: courseId,
       tee_name: DEMO_TEE_NAME,
       date: new Date().toISOString().slice(0, 10),
       status: "in_progress",

@@ -1,14 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Player } from "@/lib/types";
-import { createRoundWithRoster, DEMO_TRIP_ID, type RosterGroup, type RosterPlayer } from "@/lib/rounds";
+import {
+  createRoundWithRoster,
+  DEMO_TRIP_ID,
+  fetchTripRoster,
+  type RosterGroup,
+  type RosterPlayer,
+} from "@/lib/rounds";
+import CourseStep from "./CourseStep";
 import PlayersStep from "./PlayersStep";
 import TeamsStep from "./TeamsStep";
 import FoursomesStep, { type Group } from "./FoursomesStep";
 import ScorekeeperStep from "./ScorekeeperStep";
-import RoundsStep, { type RoundDraft } from "./RoundsStep";
 
 function groupDisplayName(players: Player[], group: Group, index: number): string {
   const names = group.playerIds
@@ -18,35 +24,52 @@ function groupDisplayName(players: Player[], group: Group, index: number): strin
 }
 
 const TABS = [
-  { id: "players", label: "1 · Players" },
-  { id: "teams", label: "2 · Ryder Cup Teams" },
-  { id: "foursomes", label: "3 · Foursomes" },
-  { id: "scorer", label: "4 · Scorekeeper" },
-  { id: "rounds", label: "5 · Rounds" },
+  { id: "course", label: "1 · Course" },
+  { id: "players", label: "2 · Players" },
+  { id: "teams", label: "3 · Ryder Cup Teams" },
+  { id: "foursomes", label: "4 · Foursomes" },
+  { id: "scorer", label: "5 · Scorekeeper" },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
 
-const LAST_TAB: TabId = "rounds";
+const LAST_TAB: TabId = "scorer";
 
 export default function SetupWizard({ tripId }: { tripId: string }) {
   const router = useRouter();
   const [tripName, setTripName] = useState(`Trip ${tripId}`);
-  const [tab, setTab] = useState<TabId>("players");
+  const [tab, setTab] = useState<TabId>("course");
 
+  const [courseId, setCourseId] = useState<string | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
   const [teamAssignment, setTeamAssignment] = useState<Record<string, "A" | "B">>({});
   const [groups, setGroups] = useState<Group[]>([]);
   const [scorekeepers, setScorekeepers] = useState<Record<string, string>>({});
-  const [rounds, setRounds] = useState<RoundDraft[]>([]);
+
+  const [roster, setRoster] = useState<Player[]>([]);
+  const rosterIds = new Set(roster.map(r => r.id));
 
   const [finishing, setFinishing] = useState(false);
   const [finishError, setFinishError] = useState<string | null>(null);
+
+  useEffect(() => {
+    // The trip's standing roster, so Players can offer "pick from
+    // roster" instead of retyping everyone every round.
+    fetchTripRoster(DEMO_TRIP_ID)
+      .then(setRoster)
+      .catch(() => {
+        // Non-fatal — Players step still works for typing names in.
+      });
+  }, []);
 
   const tabIndex = TABS.findIndex(t => t.id === tab);
   const isLastTab = tab === LAST_TAB;
 
   const handleFinish = async () => {
+    if (!courseId) {
+      setFinishError("Pick a course on the first step.");
+      return;
+    }
     setFinishing(true);
     setFinishError(null);
     try {
@@ -54,12 +77,13 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
         localId: p.id,
         name: p.name,
         handicapIndex: p.handicapIndex,
+        existingId: rosterIds.has(p.id) ? p.id : undefined,
       }));
       const rosterGroups: RosterGroup[] = groups.map((g, i) => ({
         name: groupDisplayName(players, g, i),
         localPlayerIds: g.playerIds,
       }));
-      const newRoundId = await createRoundWithRoster(DEMO_TRIP_ID, rosterPlayers, rosterGroups);
+      const newRoundId = await createRoundWithRoster(DEMO_TRIP_ID, courseId, rosterPlayers, rosterGroups);
       router.push(`/trip/${tripId}/round/${newRoundId}/scorecard`);
     } catch (e) {
       setFinishError(e instanceof Error ? e.message : "Couldn't finish setup");
@@ -96,7 +120,8 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
         ))}
       </div>
 
-      {tab === "players" && <PlayersStep players={players} setPlayers={setPlayers} />}
+      {tab === "course" && <CourseStep courseId={courseId} setCourseId={setCourseId} />}
+      {tab === "players" && <PlayersStep players={players} setPlayers={setPlayers} roster={roster} />}
       {tab === "teams" && (
         <TeamsStep players={players} assignment={teamAssignment} setAssignment={setTeamAssignment} />
       )}
@@ -109,7 +134,6 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
           setScorekeepers={setScorekeepers}
         />
       )}
-      {tab === "rounds" && <RoundsStep rounds={rounds} setRounds={setRounds} />}
 
       <div className="px-5 pt-6">
         {isLastTab ? (
@@ -129,8 +153,7 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
               </p>
             ) : (
               <p className="text-[11.5px] text-chalk-dim text-center mt-2 leading-relaxed">
-                This saves your players and foursomes as a real round — course/tee data isn't
-                wired up yet, so it uses the demo course for now.
+                This saves your course, players, and foursomes as a real round.
               </p>
             )}
           </>
