@@ -191,6 +191,9 @@ create policy "open write" on holes for insert with check (true);
 create policy "open delete" on courses for delete using (true);
 create policy "open delete" on holes for delete using (true);
 
--- Setting up the Skins game for a round (see lib/rounds.ts
--- createSkinsGame()) inserts one row into games.
+-- Setting up the Skins or Ryder Cup game for a round (see
+-- lib/rounds.ts createSkinsGame()/createRyderCupGame()) inserts one
+-- row into games. "update" covers editing the Ryder Cup config later
+-- (manual match overrides, pairing edits) — see updateRyderCupGame().
 create policy "open write" on games for insert with check (true);
+create policy "open update" on games for update using (true);

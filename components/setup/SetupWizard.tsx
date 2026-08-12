@@ -14,7 +14,7 @@ import {
 } from "@/lib/rounds";
 import CourseStep from "./CourseStep";
 import PlayersStep from "./PlayersStep";
-import TeamsStep from "./TeamsStep";
+import TeamsStep, { DEFAULT_RYDER_CUP_CONFIG, type RyderCupWizardConfig } from "./TeamsStep";
 import FoursomesStep, { type Group } from "./FoursomesStep";
 import SkinsStep from "./SkinsStep";
 import ScorekeeperStep from "./ScorekeeperStep";
@@ -37,7 +37,7 @@ function groupDisplayName(players: Player[], group: Group, index: number): strin
 const TABS = [
   { id: "course", label: "1 · Course" },
   { id: "players", label: "2 · Players" },
-  { id: "teams", label: "3 · Ryder Cup Teams" },
+  { id: "teams", label: "3 · Ryder Cup" },
   { id: "foursomes", label: "4 · Foursomes" },
   { id: "skins", label: "5 · Skins" },
   { id: "scorer", label: "6 · Scorekeeper" },
@@ -57,6 +57,7 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
   const [teamAssignment, setTeamAssignment] = useState<Record<string, "A" | "B">>({});
   const [groups, setGroups] = useState<Group[]>([]);
   const [skinsConfig, setSkinsConfig] = useState<SkinsGameConfig>(DEFAULT_SKINS_CONFIG);
+  const [ryderCup, setRyderCup] = useState<RyderCupWizardConfig>(DEFAULT_RYDER_CUP_CONFIG);
   const [scorekeepers, setScorekeepers] = useState<Record<string, string>>({});
 
   const [roster, setRoster] = useState<Player[]>([]);
@@ -107,7 +108,8 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
         courseId,
         rosterPlayers,
         rosterGroups,
-        skinsConfig
+        skinsConfig,
+        ryderCup.enabled ? ryderCup : null
       );
       router.push(`/trip/${tripId}/round/${newRoundId}/scorecard`);
     } catch (e) {
@@ -156,7 +158,13 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
         />
       )}
       {tab === "teams" && (
-        <TeamsStep players={players} assignment={teamAssignment} setAssignment={setTeamAssignment} />
+        <TeamsStep
+          players={players}
+          assignment={teamAssignment}
+          setAssignment={setTeamAssignment}
+          ryderCup={ryderCup}
+          setRyderCup={setRyderCup}
+        />
       )}
       {tab === "foursomes" && <FoursomesStep players={players} groups={groups} setGroups={setGroups} />}
       {tab === "skins" && (

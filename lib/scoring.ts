@@ -383,6 +383,247 @@ export function calculateRyderCup(scores: HoleScore[], holes: Hole[], config: Ry
   };
 }
 
+// ── RYDER CUP MATCH PLAY (round-scoped) ──────────────────────────
+// A second, independent read of the same hole_scores individual
+// strokes already entered on the Scorecard — there is no separate
+// Ryder Cup score entry, and nothing here is precomputed/stored.
+// (Unrelated to RyderCupConfig/calculateRyderCup above, which is a
+// stubbed multi-round tournament concept nothing in the UI uses.)
+export type RyderCupMatchFormat = "singles" | "four_ball";
+export type RyderCupScoringBasis = "gross" | "net";
+
+// Set by the organizer to lock in a result without touching any
+// golfer's actual scores — see calculateRyderCupMatch's override
+// handling. A concession is just "team X wins" with a note attached.
+export type RyderCupOverride = {
+  result: "team_a" | "team_b" | "halved";
+  note?: string;
+};
+
+export type RyderCupMatchConfig = {
+  id: string;
+  matchNumber: number;
+  format: RyderCupMatchFormat;
+  scoringBasis: RyderCupScoringBasis;
+  teamAPlayerIds: string[];
+  teamBPlayerIds: string[];
+  teeTime?: string | null;
+  pointValue?: number | null; // falls back to the game's defaultPointValue
+  override?: RyderCupOverride | null;
+};
+
+export type RyderCupGameConfig = {
+  teamAName: string;
+  teamBName: string;
+  defaultPointValue: number;
+  matches: RyderCupMatchConfig[];
+};
+
+export type RyderCupHoleResult = { hole: number; result: "A" | "B" | "halved" | "pending" };
+
+export type RyderCupMatchResult = {
+  matchId: string;
+  holeResults: RyderCupHoleResult[];
+  holesPlayed: number;
+  totalHoles: number;
+  margin: number; // running, positive = team A leading
+  status: "not_started" | "live" | "dormie" | "final";
+  leaderSide: "A" | "B" | null;
+  winnerSide: "A" | "B" | "halved" | null;
+  closedEarly: boolean; // final before every hole was needed
+  finalMargin: number; // |margin| at the moment the match was decided
+  finalRemaining: number; // holes left at that point (0 if it went the distance)
+  pointValue: number;
+  pointsA: number;
+  pointsB: number;
+  isOverridden: boolean;
+  overrideNote?: string;
+};
+
+// A hole only counts once every player in the match has posted a
+// score for it — same completeness gating Skins uses, so live match
+// status never jumps ahead of what's actually been entered.
+function ryderCupHoleValue(
+  scores: HoleScore[],
+  hole: Hole,
+  playerId: string,
+  scoringBasis: RyderCupScoringBasis,
+  courseHandicaps: Record<string, number>
+): number | null {
+  const s = scores.find(sc => sc.playerId === playerId && sc.holeNumber === hole.number);
+  if (!s) return null;
+  return scoringBasis === "net" ? netScore(s.strokes, hole, courseHandicaps[playerId] ?? 0) : s.strokes;
+}
+
+/**
+ * One match's live result. Singles is just the four-ball case with
+ * one player per side — the "best of your side" comparison collapses
+ * to that one player's own score.
+ */
+export function calculateRyderCupMatch(
+  scores: HoleScore[],
+  holes: Hole[],
+  match: RyderCupMatchConfig,
+  courseHandicaps: Record<string, number>,
+  defaultPointValue: number
+): RyderCupMatchResult {
+  const pointValue = match.pointValue ?? defaultPointValue;
+  const sortedHoles = [...holes].sort((a, b) => a.number - b.number);
+  const totalHoles = sortedHoles.length;
+
+  const holeResults: RyderCupHoleResult[] = [];
+  let margin = 0;
+  let holesPlayed = 0;
+  let closedAtHole: number | null = null;
+  let closedMargin = 0;
+  let closedRemaining = 0;
+
+  for (const hole of sortedHoles) {
+    if (closedAtHole !== null) {
+      holeResults.push({ hole: hole.number, result: "pending" });
+      continue;
+    }
+
+    const aValues = match.teamAPlayerIds.map(id =>
+      ryderCupHoleValue(scores, hole, id, match.scoringBasis, courseHandicaps)
+    );
+    const bValues = match.teamBPlayerIds.map(id =>
+      ryderCupHoleValue(scores, hole, id, match.scoringBasis, courseHandicaps)
+    );
+    if (aValues.some(v => v === null) || bValues.some(v => v === null)) {
+      holeResults.push({ hole: hole.number, result: "pending" });
+      continue;
+    }
+
+    const aScore = Math.min(...(aValues as number[]));
+    const bScore = Math.min(...(bValues as number[]));
+    let result: "A" | "B" | "halved";
+    if (aScore < bScore) { margin += 1; result = "A"; }
+    else if (bScore < aScore) { margin -= 1; result = "B"; }
+    else { result = "halved"; }
+
+    holeResults.push({ hole: hole.number, result });
+    holesPlayed += 1;
+
+    // Traditional match play ends the moment the trailing side can no
+    // longer catch up, even with holes still on the card.
+    const remaining = totalHoles - hole.number;
+    if (Math.abs(margin) > remaining) {
+      closedAtHole = hole.number;
+      closedMargin = Math.abs(margin);
+      closedRemaining = remaining;
+    }
+  }
+
+  const remainingAfterPlayed = totalHoles - holesPlayed;
+  const isDormie =
+    closedAtHole === null && holesPlayed > 0 && remainingAfterPlayed > 0 && Math.abs(margin) === remainingAfterPlayed;
+  const wentTheDistance = closedAtHole === null && holesPlayed === totalHoles && totalHoles > 0;
+
+  let status: RyderCupMatchResult["status"] = "not_started";
+  if (closedAtHole !== null || wentTheDistance) status = "final";
+  else if (isDormie) status = "dormie";
+  else if (holesPlayed > 0) status = "live";
+
+  let winnerSide: RyderCupMatchResult["winnerSide"] = null;
+  let pointsA = 0;
+  let pointsB = 0;
+  const finalMargin = closedAtHole !== null ? closedMargin : Math.abs(margin);
+  const finalRemaining = closedAtHole !== null ? closedRemaining : 0;
+  let isOverridden = false;
+
+  if (match.override) {
+    isOverridden = true;
+    status = "final";
+    if (match.override.result === "team_a") { winnerSide = "A"; pointsA = pointValue; }
+    else if (match.override.result === "team_b") { winnerSide = "B"; pointsB = pointValue; }
+    else { winnerSide = "halved"; pointsA = pointValue / 2; pointsB = pointValue / 2; }
+  } else if (status === "final") {
+    if (margin > 0) { winnerSide = "A"; pointsA = pointValue; }
+    else if (margin < 0) { winnerSide = "B"; pointsB = pointValue; }
+    else { winnerSide = "halved"; pointsA = pointValue / 2; pointsB = pointValue / 2; }
+  }
+
+  const leaderSide = margin > 0 ? "A" : margin < 0 ? "B" : null;
+
+  return {
+    matchId: match.id,
+    holeResults,
+    holesPlayed,
+    totalHoles,
+    margin,
+    status,
+    leaderSide,
+    winnerSide,
+    closedEarly: closedAtHole !== null,
+    finalMargin,
+    finalRemaining,
+    pointValue,
+    pointsA,
+    pointsB,
+    isOverridden,
+    overrideNote: match.override?.note,
+  };
+}
+
+export function formatRyderCupMatchStatus(result: RyderCupMatchResult, teamAName: string, teamBName: string): string {
+  if (result.status === "not_started") return "Not started";
+
+  if (result.status === "final") {
+    if (result.winnerSide === "halved") return "Final: Halved";
+    const name = result.winnerSide === "A" ? teamAName : teamBName;
+    if (result.isOverridden) return `Final: ${name} wins (override)`;
+    return result.closedEarly
+      ? `Final: ${name} wins ${result.finalMargin} & ${result.finalRemaining}`
+      : `Final: ${name} ${result.finalMargin} UP`;
+  }
+
+  const marginAbs = Math.abs(result.margin);
+  const leaderName = result.leaderSide === "A" ? teamAName : result.leaderSide === "B" ? teamBName : null;
+  const base = marginAbs === 0 ? "All Square" : `${leaderName} ${marginAbs} UP`;
+  return result.status === "dormie" ? `${base} (Dormie)` : base;
+}
+
+export type RyderCupTeamScore = {
+  pointsA: number;
+  pointsB: number;
+  totalPoints: number;
+  pointsRemaining: number;
+  neededToWinA: number;
+  neededToWinB: number;
+  clinchedSide: "A" | "B" | "tied" | null;
+};
+
+/**
+ * Overall Cup score — summed straight from each match's own points,
+ * never derived from individual leaderboard position (a golfer can
+ * top the Gross leaderboard and still lose their match). The winning
+ * threshold is computed off however many points this round's matches
+ * are actually worth, never a hard-coded 14.5-style constant.
+ */
+export function calculateRyderCupTeamScore(matchResults: RyderCupMatchResult[]): RyderCupTeamScore {
+  let pointsA = 0;
+  let pointsB = 0;
+  let totalPoints = 0;
+  for (const m of matchResults) {
+    totalPoints += m.pointValue;
+    pointsA += m.pointsA;
+    pointsB += m.pointsB;
+  }
+  const pointsAwarded = pointsA + pointsB;
+  const pointsRemaining = Math.max(0, totalPoints - pointsAwarded);
+  const winThreshold = totalPoints / 2 + 0.5;
+  const neededToWinA = Math.max(0, winThreshold - pointsA);
+  const neededToWinB = Math.max(0, winThreshold - pointsB);
+
+  let clinchedSide: RyderCupTeamScore["clinchedSide"] = null;
+  if (pointsA > pointsB + pointsRemaining) clinchedSide = "A";
+  else if (pointsB > pointsA + pointsRemaining) clinchedSide = "B";
+  else if (pointsRemaining === 0 && totalPoints > 0) clinchedSide = pointsA === pointsB ? "tied" : pointsA > pointsB ? "A" : "B";
+
+  return { pointsA, pointsB, totalPoints, pointsRemaining, neededToWinA, neededToWinB, clinchedSide };
+}
+
 // ── Individual gross + net leaderboard (works under any team game) ──
 // Scramble/alt-shot holes are excluded since only a team score
 // exists for those — see excludedHoleCount for the UI disclaimer.

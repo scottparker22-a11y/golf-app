@@ -15,7 +15,7 @@
 
 import { supabase } from "./supabase";
 import type { Player } from "./types";
-import type { SkinsGameConfig } from "./scoring";
+import type { SkinsGameConfig, RyderCupGameConfig } from "./scoring";
 
 export const DEMO_TRIP_ID = "a0000000-0000-0000-0000-000000000001";
 export const DEMO_ROUND_ID = "d0000000-0000-0000-0000-000000000001";
@@ -202,6 +202,44 @@ export async function fetchSkinsGame(roundId: string): Promise<SkinsGameConfig |
   return (data?.config as SkinsGameConfig | undefined) ?? null;
 }
 
+/**
+ * The round's Ryder Cup game (id + config), if Ryder Cup Style was
+ * enabled for it — null otherwise. TripNav uses this to decide
+ * whether to show the Ryder Cup tab at all.
+ */
+export async function fetchRyderCupGame(
+  roundId: string
+): Promise<{ gameId: string; config: RyderCupGameConfig } | null> {
+  const { data, error } = await supabase
+    .from("games")
+    .select("id, config")
+    .eq("round_id", roundId)
+    .eq("type", "ryder_cup")
+    .maybeSingle();
+  if (error) throw new Error(`Couldn't load the Ryder Cup game: ${error.message}`);
+  if (!data) return null;
+  return { gameId: data.id, config: data.config as RyderCupGameConfig };
+}
+
+/** Saves a round's Ryder Cup game config (only if at least one match is configured). */
+export async function createRyderCupGame(roundId: string, config: RyderCupGameConfig): Promise<void> {
+  if (config.matches.length === 0) return;
+  const { error } = await supabase
+    .from("games")
+    .insert({ round_id: roundId, type: "ryder_cup", name: "Ryder Cup", config });
+  if (error) throw new Error(`Couldn't save the Ryder Cup game: ${error.message}`);
+}
+
+/**
+ * Updates a round's Ryder Cup config in place — used for manual match
+ * overrides and mid-round pairing edits. Never touches hole_scores;
+ * an override only ever changes what's stored here.
+ */
+export async function updateRyderCupGame(gameId: string, config: RyderCupGameConfig): Promise<void> {
+  const { error } = await supabase.from("games").update({ config }).eq("id", gameId);
+  if (error) throw new Error(`Couldn't update the Ryder Cup game: ${error.message}`);
+}
+
 /** Saves a round's Skins game config (only if Gross or Net is actually enabled). */
 export async function createSkinsGame(roundId: string, config: SkinsGameConfig): Promise<void> {
   if (!config.gross && !config.net) return;
@@ -228,7 +266,8 @@ export async function createRoundWithRoster(
   courseId: string,
   players: RosterPlayer[],
   groups: RosterGroup[],
-  skinsConfig?: SkinsGameConfig | null
+  skinsConfig?: SkinsGameConfig | null,
+  ryderCupConfig?: RyderCupGameConfig | null
 ): Promise<string> {
   const namedPlayers = players.filter(p => p.name.trim().length > 0);
   if (namedPlayers.length === 0) {
@@ -308,6 +347,21 @@ export async function createRoundWithRoster(
 
   if (skinsConfig) {
     await createSkinsGame(newRound.id, skinsConfig);
+  }
+
+  if (ryderCupConfig) {
+    // Matches were built in the wizard against wizard-local player
+    // ids — remap through the same idMap used for groups above so
+    // they point at the real DB player rows.
+    const remapped: RyderCupGameConfig = {
+      ...ryderCupConfig,
+      matches: ryderCupConfig.matches.map(m => ({
+        ...m,
+        teamAPlayerIds: m.teamAPlayerIds.map(lid => idMap.get(lid) ?? lid),
+        teamBPlayerIds: m.teamBPlayerIds.map(lid => idMap.get(lid) ?? lid),
+      })),
+    };
+    await createRyderCupGame(newRound.id, remapped);
   }
 
   return newRound.id;
