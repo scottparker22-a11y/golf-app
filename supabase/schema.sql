@@ -50,7 +50,7 @@ create table rounds (
   tee_name text not null default 'default', -- which tee this round's group played, joins to holes.tee_name
   date date not null,
   tee_time time,
-  status text not null default 'upcoming' check (status in ('upcoming', 'in_progress', 'completed')),
+  status text not null default 'upcoming' check (status in ('upcoming', 'in_progress', 'completed', 'archived')),
   -- `date` alone isn't unique enough to order by — several rounds can
   -- share the same calendar date (e.g. testing, or a multi-round day).
   -- created_at is the real tiebreaker for "which round is actually
@@ -167,9 +167,10 @@ create policy "open write" on hole_scores for insert with check (true);
 create policy "open update" on hole_scores for update using (true);
 create policy "open delete" on hole_scores for delete using (true);
 
--- Starting a new round (see lib/rounds.ts) inserts a round + groups +
--- group_players, and marks the previous round completed. Finishing
--- the Setup Wizard also inserts new players for the roster entered.
+-- Finishing the Setup Wizard (see lib/rounds.ts createRoundWithRoster)
+-- inserts a round + groups + group_players + any new roster players,
+-- and marks the previous round completed. The "update" policy also
+-- covers archiving/restoring a round (see archiveRound/restoreRound).
 create policy "open write" on rounds for insert with check (true);
 create policy "open update" on rounds for update using (true);
 create policy "open write" on groups for insert with check (true);

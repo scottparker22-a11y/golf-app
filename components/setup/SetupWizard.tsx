@@ -18,6 +18,7 @@ import TeamsStep from "./TeamsStep";
 import FoursomesStep, { type Group } from "./FoursomesStep";
 import SkinsStep from "./SkinsStep";
 import ScorekeeperStep from "./ScorekeeperStep";
+import PageNav from "@/components/PageNav";
 
 const DEFAULT_SKINS_CONFIG: SkinsGameConfig = {
   gross: false,
@@ -117,6 +118,7 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
 
   return (
     <main className="max-w-[460px] mx-auto min-h-screen pb-10">
+      <PageNav />
       <div className="px-5 pt-6 pb-4 border-b border-[color:var(--border)]">
         <div className="text-xs font-semibold uppercase tracking-wide text-chalk-dim mb-1.5">Trip setup</div>
         <div className="flex items-center gap-2">

@@ -2,19 +2,20 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { createRound, fetchRounds, type RoundSummary } from "@/lib/rounds";
+import { archiveRound, fetchRounds, restoreRound, type RoundSummary } from "@/lib/rounds";
 
 const STATUS_STYLE: Record<string, string> = {
   in_progress: "bg-turf/15 text-turf",
   completed: "bg-surface-raised text-chalk-dim",
   upcoming: "bg-sand/15 text-sand",
+  archived: "bg-surface-raised text-chalk-dim",
 };
 
 const STATUS_LABEL: Record<string, string> = {
   in_progress: "In progress",
   completed: "Completed",
   upcoming: "Upcoming",
+  archived: "Archived",
 };
 
 function formatDate(iso: string) {
@@ -26,10 +27,11 @@ function formatDate(iso: string) {
 }
 
 export default function RoundsList({ tripId, tripDbId }: { tripId: string; tripDbId: string }) {
-  const router = useRouter();
   const [rounds, setRounds] = useState<RoundSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
+  const [confirmArchiveId, setConfirmArchiveId] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
 
   useEffect(() => {
     fetchRounds(tripDbId)
@@ -37,22 +39,30 @@ export default function RoundsList({ tripId, tripDbId }: { tripId: string; tripD
       .catch(e => setError(e instanceof Error ? e.message : "Couldn't load rounds"));
   }, [tripDbId]);
 
-  const startNewRound = async () => {
-    if (!rounds || rounds.length === 0) return;
-    setCreating(true);
+  const handleArchive = async (roundId: string) => {
+    setBusyId(roundId);
     setError(null);
     try {
-      // Copy foursomes from whichever round is actually in progress —
-      // falling back to the most recent only if none is (e.g. every
-      // round's already completed). Rounds are ordered by created_at
-      // in fetchRounds, so rounds[0] is a safe fallback too, but the
-      // explicit in_progress check is what actually matters here.
-      const sourceRound = rounds.find(r => r.status === "in_progress") ?? rounds[0];
-      const newRoundId = await createRound(tripDbId, sourceRound.id);
-      router.push(`/trip/${tripId}/round/${newRoundId}/scorecard`);
+      await archiveRound(roundId);
+      setRounds(prev => prev && prev.map(r => (r.id === roundId ? { ...r, status: "archived" } : r)));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't start a new round");
-      setCreating(false);
+      setError(e instanceof Error ? e.message : "Couldn't archive the round");
+    } finally {
+      setBusyId(null);
+      setConfirmArchiveId(null);
+    }
+  };
+
+  const handleRestore = async (roundId: string) => {
+    setBusyId(roundId);
+    setError(null);
+    try {
+      await restoreRound(roundId);
+      setRounds(prev => prev && prev.map(r => (r.id === roundId ? { ...r, status: "completed" } : r)));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't restore the round");
+    } finally {
+      setBusyId(null);
     }
   };
 
@@ -68,31 +78,88 @@ export default function RoundsList({ tripId, tripDbId }: { tripId: string; tripD
     return <div className="px-5 pt-8 text-sm text-chalk-dim">Loading rounds…</div>;
   }
 
+  const activeRounds = rounds.filter(r => r.status !== "archived");
+  const archivedRounds = rounds.filter(r => r.status === "archived");
+
   return (
     <div className="px-5 pt-4 pb-8">
-      <button
-        onClick={startNewRound}
-        disabled={creating || rounds.length === 0}
-        className="w-full mb-4 py-3.5 rounded-xl bg-turf text-fairway-950 font-bold text-[15px] disabled:opacity-60"
-      >
-        {creating ? "Starting…" : "+ Start new round"}
-      </button>
-
-      {rounds.length === 0 ? (
+      {activeRounds.length === 0 ? (
         <p className="text-[13px] text-chalk-dim text-center py-6">No rounds yet.</p>
       ) : (
-        rounds.map(r => (
-          <Link
-            key={r.id}
-            href={`/trip/${tripId}/round/${r.id}/leaderboard`}
-            className="flex items-center justify-between p-3.5 bg-surface border border-[color:var(--border)] rounded-xl mb-2"
-          >
-            <div className="font-semibold text-[14px]">{formatDate(r.date)}</div>
-            <span className={`text-[11px] font-bold px-2 py-1 rounded-md ${STATUS_STYLE[r.status] ?? ""}`}>
-              {STATUS_LABEL[r.status] ?? r.status}
-            </span>
-          </Link>
+        activeRounds.map(r => (
+          <div key={r.id} className="flex items-center gap-2 mb-2">
+            <Link
+              href={`/trip/${tripId}/round/${r.id}/leaderboard`}
+              className="flex-1 flex items-center justify-between p-3.5 bg-surface border border-[color:var(--border)] rounded-xl min-w-0"
+            >
+              <div className="font-semibold text-[14px]">{formatDate(r.date)}</div>
+              <span className={`text-[11px] font-bold px-2 py-1 rounded-md ${STATUS_STYLE[r.status] ?? ""}`}>
+                {STATUS_LABEL[r.status] ?? r.status}
+              </span>
+            </Link>
+
+            {confirmArchiveId === r.id ? (
+              <div className="flex gap-1 flex-shrink-0">
+                <button
+                  onClick={() => handleArchive(r.id)}
+                  disabled={busyId === r.id}
+                  className="text-[11px] font-bold px-2.5 py-2 rounded-lg bg-flag/15 text-flag disabled:opacity-60"
+                >
+                  {busyId === r.id ? "…" : "Confirm"}
+                </button>
+                <button
+                  onClick={() => setConfirmArchiveId(null)}
+                  className="text-[11px] font-bold px-2.5 py-2 rounded-lg bg-surface border border-[color:var(--border)] text-chalk-dim"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setConfirmArchiveId(r.id)}
+                className="flex-shrink-0 text-[11px] font-bold px-2.5 py-2 rounded-lg bg-surface border border-[color:var(--border)] text-chalk-dim"
+              >
+                Archive
+              </button>
+            )}
+          </div>
         ))
+      )}
+
+      {archivedRounds.length > 0 && (
+        <div className="mt-5">
+          <button
+            onClick={() => setShowArchived(s => !s)}
+            className="text-[12.5px] font-semibold text-chalk-dim underline"
+          >
+            {showArchived ? "Hide" : "Show"} archived ({archivedRounds.length})
+          </button>
+
+          {showArchived && (
+            <div className="mt-3">
+              {archivedRounds.map(r => (
+                <div key={r.id} className="flex items-center gap-2 mb-2">
+                  <Link
+                    href={`/trip/${tripId}/round/${r.id}/leaderboard`}
+                    className="flex-1 flex items-center justify-between p-3.5 bg-surface/60 border border-[color:var(--border)] rounded-xl min-w-0 opacity-70"
+                  >
+                    <div className="font-semibold text-[14px]">{formatDate(r.date)}</div>
+                    <span className={`text-[11px] font-bold px-2 py-1 rounded-md ${STATUS_STYLE.archived}`}>
+                      {STATUS_LABEL.archived}
+                    </span>
+                  </Link>
+                  <button
+                    onClick={() => handleRestore(r.id)}
+                    disabled={busyId === r.id}
+                    className="flex-shrink-0 text-[11px] font-bold px-2.5 py-2 rounded-lg bg-surface border border-[color:var(--border)] text-chalk-dim disabled:opacity-60"
+                  >
+                    {busyId === r.id ? "…" : "Restore"}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

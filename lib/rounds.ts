@@ -129,7 +129,7 @@ export async function deletePlayer(playerId: string): Promise<void> {
   }
 }
 
-export type RoundStatus = "upcoming" | "in_progress" | "completed";
+export type RoundStatus = "upcoming" | "in_progress" | "completed" | "archived";
 
 export type RoundSummary = {
   id: string;
@@ -154,10 +154,26 @@ export async function fetchRounds(tripId: string): Promise<RoundSummary[]> {
   return (data ?? []).map(r => ({ id: r.id, date: r.date, status: r.status as RoundStatus }));
 }
 
-/** The trip's current round — most recent in_progress, else most recent overall. */
+/** The trip's current round — most recent in_progress, else most recent overall (archived rounds excluded). */
 export async function fetchCurrentRoundId(tripId: string): Promise<string> {
-  const rounds = await fetchRounds(tripId);
+  const rounds = (await fetchRounds(tripId)).filter(r => r.status !== "archived");
   return rounds.find(r => r.status === "in_progress")?.id ?? rounds[0]?.id ?? DEMO_ROUND_ID;
+}
+
+/**
+ * Archives a round — hides it from the main History list without
+ * deleting anything (rounds are never deleted, see the note above).
+ * Reversible via restoreRound.
+ */
+export async function archiveRound(roundId: string): Promise<void> {
+  const { error } = await supabase.from("rounds").update({ status: "archived" }).eq("id", roundId);
+  if (error) throw new Error(`Couldn't archive the round: ${error.message}`);
+}
+
+/** Un-archives a round, putting it back in History as completed. */
+export async function restoreRound(roundId: string): Promise<void> {
+  const { error } = await supabase.from("rounds").update({ status: "completed" }).eq("id", roundId);
+  if (error) throw new Error(`Couldn't restore the round: ${error.message}`);
 }
 
 /** The round's Skins game config, if one was set up — null if Skins isn't being played. */
@@ -179,70 +195,6 @@ export async function createSkinsGame(roundId: string, config: SkinsGameConfig):
     .from("games")
     .insert({ round_id: roundId, type: "skins", name: "Skins", config });
   if (error) throw new Error(`Couldn't save the skins game: ${error.message}`);
-}
-
-/**
- * Starts a new round for the trip, copying the foursomes (groups +
- * players) from an existing round so the new one is immediately
- * playable — no re-entering the roster. Any round still marked
- * in_progress is closed out to completed first.
- */
-export async function createRound(tripId: string, copyGroupsFromRoundId: string): Promise<string> {
-  const { data: sourceRound, error: sourceErr } = await supabase
-    .from("rounds")
-    .select("course_id, tee_name")
-    .eq("id", copyGroupsFromRoundId)
-    .single();
-  if (sourceErr || !sourceRound) {
-    throw new Error(sourceErr?.message ?? "Couldn't find a round to copy from");
-  }
-
-  const { data: sourceGroups, error: groupsErr } = await supabase
-    .from("groups")
-    .select("name, group_players(player_id)")
-    .eq("round_id", copyGroupsFromRoundId);
-  if (groupsErr) throw new Error(`Couldn't load groups to copy: ${groupsErr.message}`);
-
-  const { error: closeErr } = await supabase
-    .from("rounds")
-    .update({ status: "completed" })
-    .eq("trip_id", tripId)
-    .eq("status", "in_progress");
-  if (closeErr) throw new Error(`Couldn't close out the previous round: ${closeErr.message}`);
-
-  const { data: newRound, error: insertErr } = await supabase
-    .from("rounds")
-    .insert({
-      trip_id: tripId,
-      course_id: sourceRound.course_id,
-      tee_name: sourceRound.tee_name,
-      date: new Date().toISOString().slice(0, 10),
-      status: "in_progress",
-    })
-    .select("id")
-    .single();
-  if (insertErr || !newRound) throw new Error(insertErr?.message ?? "Couldn't create the new round");
-
-  for (const g of (sourceGroups ?? []) as { name: string | null; group_players: { player_id: string }[] | null }[]) {
-    const { data: newGroup, error: groupInsertErr } = await supabase
-      .from("groups")
-      .insert({ round_id: newRound.id, name: g.name })
-      .select("id")
-      .single();
-    if (groupInsertErr || !newGroup) {
-      throw new Error(groupInsertErr?.message ?? "Couldn't set up a foursome for the new round");
-    }
-
-    const playerIds = (g.group_players ?? []).map(gp => gp.player_id);
-    if (playerIds.length > 0) {
-      const { error: gpErr } = await supabase
-        .from("group_players")
-        .insert(playerIds.map(playerId => ({ group_id: newGroup.id, player_id: playerId })));
-      if (gpErr) throw new Error(`Couldn't add players to the new round: ${gpErr.message}`);
-    }
-  }
-
-  return newRound.id;
 }
 
 // Set when a roster entry is an existing trip player being reused —
