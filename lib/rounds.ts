@@ -4,10 +4,13 @@
 // components can import them. The live-scoring React hook lives in
 // lib/liveRound.ts.
 //
-// Every round a trip plays is its own row in `rounds` and is never
-// deleted, so past rounds stay available to look back at even after
-// a new one starts. See supabase/seed.sql for the demo trip's
-// starting round.
+// Every round a trip plays is its own row in `rounds`, kept around by
+// default so past rounds stay available to look back at even after a
+// new one starts (archiveRound just hides one from the main list).
+// deleteRound is the one true escape hatch, for rounds that were
+// created by mistake — it's irreversible and cascades to that
+// round's groups/group_players/hole_scores/games, unlike everything
+// else here. See supabase/seed.sql for the demo trip's starting round.
 // ─────────────────────────────────────────────────────────────
 
 import { supabase } from "./supabase";
@@ -162,8 +165,7 @@ export async function fetchCurrentRoundId(tripId: string): Promise<string> {
 
 /**
  * Archives a round — hides it from the main History list without
- * deleting anything (rounds are never deleted, see the note above).
- * Reversible via restoreRound.
+ * deleting anything. Reversible via restoreRound.
  */
 export async function archiveRound(roundId: string): Promise<void> {
   const { error } = await supabase.from("rounds").update({ status: "archived" }).eq("id", roundId);
@@ -174,6 +176,18 @@ export async function archiveRound(roundId: string): Promise<void> {
 export async function restoreRound(roundId: string): Promise<void> {
   const { error } = await supabase.from("rounds").update({ status: "completed" }).eq("id", roundId);
   if (error) throw new Error(`Couldn't restore the round: ${error.message}`);
+}
+
+/**
+ * Permanently deletes a round — for ones created by mistake or that
+ * never actually happened. Unlike archiveRound, this can't be undone:
+ * it cascades to the round's groups, group_players, hole_scores, and
+ * games. Player and course rows themselves are untouched (they're
+ * trip-scoped, not round-scoped).
+ */
+export async function deleteRound(roundId: string): Promise<void> {
+  const { error } = await supabase.from("rounds").delete().eq("id", roundId);
+  if (error) throw new Error(`Couldn't delete the round: ${error.message}`);
 }
 
 /** The round's Skins game config, if one was set up — null if Skins isn't being played. */

@@ -171,8 +171,11 @@ create policy "open delete" on hole_scores for delete using (true);
 -- inserts a round + groups + group_players + any new roster players,
 -- and marks the previous round completed. The "update" policy also
 -- covers archiving/restoring a round (see archiveRound/restoreRound).
+-- "delete" is for rounds created by mistake (see deleteRound) — it
+-- cascades to that round's groups/group_players/hole_scores/games.
 create policy "open write" on rounds for insert with check (true);
 create policy "open update" on rounds for update using (true);
+create policy "open delete" on rounds for delete using (true);
 create policy "open write" on groups for insert with check (true);
 create policy "open delete" on groups for delete using (true);
 create policy "open write" on group_players for insert with check (true);

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { archiveRound, fetchRounds, restoreRound, type RoundSummary } from "@/lib/rounds";
+import { archiveRound, deleteRound, fetchRounds, restoreRound, type RoundSummary } from "@/lib/rounds";
 
 const STATUS_STYLE: Record<string, string> = {
   in_progress: "bg-turf/15 text-turf",
@@ -26,10 +26,12 @@ function formatDate(iso: string) {
   });
 }
 
+type PendingConfirm = { id: string; action: "archive" | "delete" };
+
 export default function RoundsList({ tripId, tripDbId }: { tripId: string; tripDbId: string }) {
   const [rounds, setRounds] = useState<RoundSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [confirmArchiveId, setConfirmArchiveId] = useState<string | null>(null);
+  const [pending, setPending] = useState<PendingConfirm | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
 
@@ -49,7 +51,7 @@ export default function RoundsList({ tripId, tripDbId }: { tripId: string; tripD
       setError(e instanceof Error ? e.message : "Couldn't archive the round");
     } finally {
       setBusyId(null);
-      setConfirmArchiveId(null);
+      setPending(null);
     }
   };
 
@@ -63,6 +65,20 @@ export default function RoundsList({ tripId, tripDbId }: { tripId: string; tripD
       setError(e instanceof Error ? e.message : "Couldn't restore the round");
     } finally {
       setBusyId(null);
+    }
+  };
+
+  const handleDelete = async (roundId: string) => {
+    setBusyId(roundId);
+    setError(null);
+    try {
+      await deleteRound(roundId);
+      setRounds(prev => prev && prev.filter(r => r.id !== roundId));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't delete the round");
+    } finally {
+      setBusyId(null);
+      setPending(null);
     }
   };
 
@@ -81,49 +97,75 @@ export default function RoundsList({ tripId, tripDbId }: { tripId: string; tripD
   const activeRounds = rounds.filter(r => r.status !== "archived");
   const archivedRounds = rounds.filter(r => r.status === "archived");
 
+  const renderRow = (r: RoundSummary, opts: { faded?: boolean; onRestore?: boolean } = {}) => {
+    const isPendingHere = pending?.id === r.id;
+    return (
+      <div key={r.id} className="flex items-center gap-2 mb-2">
+        <Link
+          href={`/trip/${tripId}/round/${r.id}/leaderboard`}
+          className={`flex-1 flex items-center justify-between p-3.5 bg-surface border border-[color:var(--border)] rounded-xl min-w-0 ${
+            opts.faded ? "opacity-70" : ""
+          }`}
+        >
+          <div className="font-semibold text-[14px]">{formatDate(r.date)}</div>
+          <span className={`text-[11px] font-bold px-2 py-1 rounded-md ${STATUS_STYLE[r.status] ?? ""}`}>
+            {STATUS_LABEL[r.status] ?? r.status}
+          </span>
+        </Link>
+
+        {isPendingHere ? (
+          <div className="flex gap-1 flex-shrink-0">
+            <button
+              onClick={() => (pending.action === "archive" ? handleArchive(r.id) : handleDelete(r.id))}
+              disabled={busyId === r.id}
+              className="text-[11px] font-bold px-2.5 py-2 rounded-lg bg-flag/15 text-flag disabled:opacity-60"
+            >
+              {busyId === r.id ? "…" : pending.action === "archive" ? "Confirm" : "Delete"}
+            </button>
+            <button
+              onClick={() => setPending(null)}
+              className="text-[11px] font-bold px-2.5 py-2 rounded-lg bg-surface border border-[color:var(--border)] text-chalk-dim"
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <div className="flex gap-1 flex-shrink-0">
+            {opts.onRestore && (
+              <button
+                onClick={() => handleRestore(r.id)}
+                disabled={busyId === r.id}
+                className="text-[11px] font-bold px-2.5 py-2 rounded-lg bg-surface border border-[color:var(--border)] text-chalk-dim disabled:opacity-60"
+              >
+                {busyId === r.id ? "…" : "Restore"}
+              </button>
+            )}
+            {!opts.onRestore && (
+              <button
+                onClick={() => setPending({ id: r.id, action: "archive" })}
+                className="text-[11px] font-bold px-2.5 py-2 rounded-lg bg-surface border border-[color:var(--border)] text-chalk-dim"
+              >
+                Archive
+              </button>
+            )}
+            <button
+              onClick={() => setPending({ id: r.id, action: "delete" })}
+              className="text-[11px] font-bold px-2.5 py-2 rounded-lg bg-surface border border-[color:var(--border)] text-flag"
+            >
+              Delete
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="px-5 pt-4 pb-8">
       {activeRounds.length === 0 ? (
         <p className="text-[13px] text-chalk-dim text-center py-6">No rounds yet.</p>
       ) : (
-        activeRounds.map(r => (
-          <div key={r.id} className="flex items-center gap-2 mb-2">
-            <Link
-              href={`/trip/${tripId}/round/${r.id}/leaderboard`}
-              className="flex-1 flex items-center justify-between p-3.5 bg-surface border border-[color:var(--border)] rounded-xl min-w-0"
-            >
-              <div className="font-semibold text-[14px]">{formatDate(r.date)}</div>
-              <span className={`text-[11px] font-bold px-2 py-1 rounded-md ${STATUS_STYLE[r.status] ?? ""}`}>
-                {STATUS_LABEL[r.status] ?? r.status}
-              </span>
-            </Link>
-
-            {confirmArchiveId === r.id ? (
-              <div className="flex gap-1 flex-shrink-0">
-                <button
-                  onClick={() => handleArchive(r.id)}
-                  disabled={busyId === r.id}
-                  className="text-[11px] font-bold px-2.5 py-2 rounded-lg bg-flag/15 text-flag disabled:opacity-60"
-                >
-                  {busyId === r.id ? "…" : "Confirm"}
-                </button>
-                <button
-                  onClick={() => setConfirmArchiveId(null)}
-                  className="text-[11px] font-bold px-2.5 py-2 rounded-lg bg-surface border border-[color:var(--border)] text-chalk-dim"
-                >
-                  Cancel
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={() => setConfirmArchiveId(r.id)}
-                className="flex-shrink-0 text-[11px] font-bold px-2.5 py-2 rounded-lg bg-surface border border-[color:var(--border)] text-chalk-dim"
-              >
-                Archive
-              </button>
-            )}
-          </div>
-        ))
+        activeRounds.map(r => renderRow(r))
       )}
 
       {archivedRounds.length > 0 && (
@@ -137,26 +179,7 @@ export default function RoundsList({ tripId, tripDbId }: { tripId: string; tripD
 
           {showArchived && (
             <div className="mt-3">
-              {archivedRounds.map(r => (
-                <div key={r.id} className="flex items-center gap-2 mb-2">
-                  <Link
-                    href={`/trip/${tripId}/round/${r.id}/leaderboard`}
-                    className="flex-1 flex items-center justify-between p-3.5 bg-surface/60 border border-[color:var(--border)] rounded-xl min-w-0 opacity-70"
-                  >
-                    <div className="font-semibold text-[14px]">{formatDate(r.date)}</div>
-                    <span className={`text-[11px] font-bold px-2 py-1 rounded-md ${STATUS_STYLE.archived}`}>
-                      {STATUS_LABEL.archived}
-                    </span>
-                  </Link>
-                  <button
-                    onClick={() => handleRestore(r.id)}
-                    disabled={busyId === r.id}
-                    className="flex-shrink-0 text-[11px] font-bold px-2.5 py-2 rounded-lg bg-surface border border-[color:var(--border)] text-chalk-dim disabled:opacity-60"
-                  >
-                    {busyId === r.id ? "…" : "Restore"}
-                  </button>
-                </div>
-              ))}
+              {archivedRounds.map(r => renderRow(r, { faded: true, onRestore: true }))}
             </div>
           )}
         </div>
