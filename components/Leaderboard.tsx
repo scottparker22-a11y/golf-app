@@ -11,21 +11,26 @@ import { useLiveRound } from "@/lib/liveRound";
 
 export default function Leaderboard({ roundId }: { roundId: string }) {
   const [view, setView] = useState<"team" | "individual">("team");
+  const [scoreMode, setScoreMode] = useState<"gross" | "net">("gross");
 
   // Live, shared with every other device watching this same round —
   // Supabase pushes any player's entered stroke here in real time.
   const { loading, error, players, holes, teams, holeScores } = useLiveRound(roundId);
-
-  const individual = useMemo(
-    () => calculateIndividualLeaderboard(holeScores, players, holes),
-    [holeScores, players, holes]
-  );
 
   const courseHandicaps = useMemo(() => {
     const map: Record<string, number> = {};
     for (const p of players) map[p.id] = approxCourseHandicap(p.handicapIndex);
     return map;
   }, [players]);
+
+  const individualByGross = useMemo(
+    () => calculateIndividualLeaderboard(holeScores, players, holes, courseHandicaps),
+    [holeScores, players, holes, courseHandicaps]
+  );
+  const individual = useMemo(() => {
+    const sortKey = scoreMode === "net" ? "netRelativeToPar" : "relativeToPar";
+    return [...individualByGross].sort((a, b) => a[sortKey] - b[sortKey]);
+  }, [individualByGross, scoreMode]);
 
   const grossSkinsResults = useMemo(
     () => calculateSkins(holeScores, players, holes, { usesHandicap: false, carryover: true }, {}),
@@ -46,17 +51,18 @@ export default function Leaderboard({ roundId }: { roundId: string }) {
   const netSkinsByPlayer = useMemo(() => skinsWonByPlayer(netSkinsResults), [netSkinsResults]);
 
   const teamStandings = useMemo(() => {
+    const sortKey = scoreMode === "net" ? "netRelativeToPar" : "relativeToPar";
     return teams
       .map(team => {
-        const members = individual.filter(p => team.playerIds.includes(p.playerId));
-        const total = members.reduce((sum, m) => sum + m.relativeToPar, 0);
+        const members = individualByGross.filter(p => team.playerIds.includes(p.playerId));
+        const total = members.reduce((sum, m) => sum + m[sortKey], 0);
         const holesPlayed = Math.min(...members.map(m => m.holesPlayed));
         const grossSkinsCount = team.playerIds.reduce((sum, id) => sum + (grossSkinsByPlayer[id] ?? 0), 0);
         const netSkinsCount = team.playerIds.reduce((sum, id) => sum + (netSkinsByPlayer[id] ?? 0), 0);
         return { ...team, total, holesPlayed, grossSkinsCount, netSkinsCount };
       })
       .sort((a, b) => a.total - b.total);
-  }, [teams, individual, grossSkinsByPlayer, netSkinsByPlayer]);
+  }, [teams, individualByGross, scoreMode, grossSkinsByPlayer, netSkinsByPlayer]);
 
   const formatScore = (n: number) => (n === 0 ? "E" : n > 0 ? `+${n}` : `${n}`);
   const scoreColor = (n: number) => (n < 0 ? "text-turf" : "text-chalk");
@@ -90,6 +96,25 @@ export default function Leaderboard({ roundId }: { roundId: string }) {
           }`}
         >
           Individual
+        </button>
+      </div>
+
+      <div className="flex gap-1 mx-5 mt-2 p-1 bg-surface border border-[color:var(--border)] rounded-xl">
+        <button
+          onClick={() => setScoreMode("gross")}
+          className={`flex-1 text-sm font-semibold py-2 rounded-lg ${
+            scoreMode === "gross" ? "bg-surface-raised text-chalk" : "text-chalk-dim"
+          }`}
+        >
+          Gross
+        </button>
+        <button
+          onClick={() => setScoreMode("net")}
+          className={`flex-1 text-sm font-semibold py-2 rounded-lg ${
+            scoreMode === "net" ? "bg-surface-raised text-chalk" : "text-chalk-dim"
+          }`}
+        >
+          Net
         </button>
       </div>
 
@@ -130,8 +155,9 @@ export default function Leaderboard({ roundId }: { roundId: string }) {
       ) : (
         <div className="px-3 pt-4 pb-1">
           <div className="flex items-start gap-2 mx-2 mb-3 p-2.5 bg-surface border border-[color:var(--border)] rounded-lg text-xs text-chalk-dim leading-relaxed">
-            Gross totals from individually-recorded holes only. Scramble/alt-shot holes are
-            excluded since only a team score exists for those.
+            {scoreMode === "net"
+              ? "Net totals — strokes minus handicap strokes (course handicap approximated from handicap index). Individually-recorded holes only; scramble/alt-shot holes are excluded since only a team score exists for those."
+              : "Gross totals from individually-recorded holes only. Scramble/alt-shot holes are excluded since only a team score exists for those."}
           </div>
           {individual.map((p, i) => (
             <div
@@ -162,8 +188,12 @@ export default function Leaderboard({ roundId }: { roundId: string }) {
                 </div>
               </div>
               <div className="text-right">
-                <div className={`font-mono font-semibold text-lg ${scoreColor(p.relativeToPar)}`}>
-                  {formatScore(p.relativeToPar)}
+                <div
+                  className={`font-mono font-semibold text-lg ${scoreColor(
+                    scoreMode === "net" ? p.netRelativeToPar : p.relativeToPar
+                  )}`}
+                >
+                  {formatScore(scoreMode === "net" ? p.netRelativeToPar : p.relativeToPar)}
                 </div>
                 <div className="text-[11px] text-chalk-dim">{p.holesPlayed} holes</div>
               </div>

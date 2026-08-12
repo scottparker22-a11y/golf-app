@@ -383,22 +383,35 @@ export function calculateRyderCup(scores: HoleScore[], holes: Hole[], config: Ry
   };
 }
 
-// ── Individual gross leaderboard (works under any team game) ────
+// ── Individual gross + net leaderboard (works under any team game) ──
 // Scramble/alt-shot holes are excluded since only a team score
 // exists for those — see excludedHoleCount for the UI disclaimer.
-export function calculateIndividualLeaderboard(scores: HoleScore[], players: Player[], holes: Hole[]) {
+// courseHandicaps is optional — pass it (see approxCourseHandicap) to
+// get netRelativeToPar too; without it net just equals gross.
+export function calculateIndividualLeaderboard(
+  scores: HoleScore[],
+  players: Player[],
+  holes: Hole[],
+  courseHandicaps: Record<string, number> = {}
+) {
   return players.map(player => {
     const individualScores = scores.filter(s => s.playerId === player.id && !s.teamId);
-    const total = individualScores.reduce((sum, s) => sum + s.strokes, 0);
-    const parForHoles = individualScores.reduce((sum, s) => {
+    const courseHandicap = courseHandicaps[player.id] ?? 0;
+    let grossTotal = 0;
+    let netTotal = 0;
+    let parForHoles = 0;
+    for (const s of individualScores) {
       const hole = holes.find(h => h.number === s.holeNumber);
-      return sum + (hole?.par ?? 0);
-    }, 0);
+      grossTotal += s.strokes;
+      netTotal += hole ? s.strokes - strokesReceived(hole, courseHandicap) : s.strokes;
+      parForHoles += hole?.par ?? 0;
+    }
     return {
       playerId: player.id,
       name: player.name,
       holesPlayed: individualScores.length,
-      relativeToPar: total - parForHoles,
+      relativeToPar: grossTotal - parForHoles,
+      netRelativeToPar: netTotal - parForHoles,
     };
   }).sort((a, b) => a.relativeToPar - b.relativeToPar);
 }
