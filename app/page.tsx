@@ -12,7 +12,7 @@ export default function Home() {
       <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6 text-center">
         <h1 className="font-display font-extrabold text-3xl">Buddy Trip Golf</h1>
         <p className="text-chalk-dim text-sm max-w-xs">
-          Live Scoring, Ryder Cup, and Skins Game for the trip.
+          Live Scoring, Ryder Cup, and Skins Game.
         </p>
         <Link
           href="/trip/demo/leaderboard"
