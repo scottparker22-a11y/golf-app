@@ -18,7 +18,7 @@ export default function Home() {
           href="/trip/demo/leaderboard"
           className="mt-2 bg-turf text-fairway-950 font-bold text-sm px-5 py-3 rounded-xl"
         >
-          View demo leaderboard
+          Live leaderboard
         </Link>
         <Link href="/trip/demo/scorecard" className="text-turf text-sm underline">
           Enter scores (scorecard)
