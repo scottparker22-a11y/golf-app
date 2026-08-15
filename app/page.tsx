@@ -18,13 +18,13 @@ export default function Home() {
           href="/trip/demo/leaderboard"
           className="mt-2 bg-turf text-fairway-950 font-bold text-sm px-5 py-3 rounded-xl"
         >
-          Live leaderboard
+          Live Leaderboard
         </Link>
         <Link href="/trip/demo/scorecard" className="text-turf text-sm underline">
-          Enter scores (scorecard)
+          Enter Scores (Scorecard)
         </Link>
         <Link href="/trip/demo/rounds" className="text-turf text-sm underline">
-          Round history
+          Round History
         </Link>
 
         <div className="w-full max-w-[160px] border-t border-[color:var(--border)] mt-4 pt-4">
