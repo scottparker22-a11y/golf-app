@@ -1,5 +1,6 @@
 import Link from "next/link";
 import PageNav from "@/components/PageNav";
+import AdminSetupLink from "@/components/admin/AdminSetupLink";
 
 // Landing page — in a real build this would list the user's trips
 // from Supabase and let them create a new one. Kept minimal here
@@ -25,9 +26,10 @@ export default function Home() {
         <Link href="/trip/demo/rounds" className="text-turf text-sm underline">
           Round history
         </Link>
-        <Link href="/trip/demo/setup" className="text-turf text-sm underline">
-          Trip setup wizard
-        </Link>
+
+        <div className="w-full max-w-[160px] border-t border-[color:var(--border)] mt-4 pt-4">
+          <AdminSetupLink tripId="demo" />
+        </div>
       </div>
     </main>
   );
