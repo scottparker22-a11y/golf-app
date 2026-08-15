@@ -11,11 +11,36 @@
 // created by mistake — it's irreversible and cascades to that
 // round's groups/group_players/hole_scores/games, unlike everything
 // else here. See supabase/seed.sql for the demo trip's starting round.
+//
+// Reads below still go straight to Supabase with the anon key (RLS
+// keeps those tables open-read). Writes to the admin-gated tables
+// (players/groups/group_players/rounds/games/courses/holes) instead
+// fetch() the app's own /api/admin/* routes, which check the admin
+// PIN session cookie (lib/adminAuth.ts) and — only once that passes —
+// write via the service-role client (lib/supabaseAdmin.ts, used from
+// lib/admin/roundAdmin.ts). RLS no longer lets the anon key write to
+// those tables at all, so this isn't optional plumbing; it's the only
+// way these functions can still succeed. hole_scores is untouched —
+// still a direct anon-client write, scoped to the group's
+// scorekeeper (see lib/liveRound.ts).
 // ─────────────────────────────────────────────────────────────
 
 import { supabase } from "./supabase";
 import type { Player } from "./types";
 import type { SkinsGameConfig, RyderCupGameConfig } from "./scoring";
+
+/** Parses a /api/admin/* JSON error response into a thrown Error. */
+async function throwOnError(res: Response, fallback: string): Promise<void> {
+  if (res.ok) return;
+  let message = fallback;
+  try {
+    const data = await res.json();
+    if (data?.error) message = data.error;
+  } catch {
+    // Non-JSON error body — stick with the fallback.
+  }
+  throw new Error(message);
+}
 
 export const DEMO_TRIP_ID = "a0000000-0000-0000-0000-000000000001";
 export const DEMO_ROUND_ID = "d0000000-0000-0000-0000-000000000001";
@@ -26,7 +51,7 @@ export const DEMO_TEE_NAME = "default";
 // the app, since real course-data autofill isn't wired up yet (see
 // lib/courseData.ts) — every new course gets a playable 18 holes
 // immediately instead of an empty scorecard.
-const STANDARD_HOLES: { number: number; par: number; strokeIndex: number }[] = [
+export const STANDARD_HOLES: { number: number; par: number; strokeIndex: number }[] = [
   { number: 1, par: 4, strokeIndex: 7 },
   { number: 2, par: 3, strokeIndex: 15 },
   { number: 3, par: 5, strokeIndex: 3 },
@@ -58,31 +83,21 @@ export async function fetchCourses(): Promise<CourseSummary[]> {
 
 /**
  * Adds a new course to the queue with a standard 18-hole layout, so
- * it's immediately playable. Returns the new course id.
+ * it's immediately playable. Returns the new course id. Admin-only —
+ * see app/api/admin/courses/route.ts.
  */
 export async function createCourse(name: string, location: string): Promise<string> {
   const trimmedName = name.trim();
   if (!trimmedName) throw new Error("Give the course a name.");
 
-  const { data: course, error: courseErr } = await supabase
-    .from("courses")
-    .insert({ name: trimmedName, location: location.trim() || null })
-    .select("id")
-    .single();
-  if (courseErr || !course) throw new Error(courseErr?.message ?? "Couldn't add the course");
-
-  const { error: holesErr } = await supabase.from("holes").insert(
-    STANDARD_HOLES.map(h => ({
-      course_id: course.id,
-      tee_name: DEMO_TEE_NAME,
-      number: h.number,
-      par: h.par,
-      stroke_index: h.strokeIndex,
-    }))
-  );
-  if (holesErr) throw new Error(`Couldn't set up the course's holes: ${holesErr.message}`);
-
-  return course.id;
+  const res = await fetch("/api/admin/courses", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: trimmedName, location: location.trim() || null }),
+  });
+  await throwOnError(res, "Couldn't add the course");
+  const { id } = await res.json();
+  return id;
 }
 
 /** The trip's standing player roster — build it once, reuse every round. */
@@ -96,24 +111,20 @@ export async function fetchTripRoster(tripId: string): Promise<Player[]> {
   return (data ?? []).map(p => ({ id: p.id, name: p.name, handicapIndex: p.handicap_index ?? 0 }));
 }
 
-// Postgres' foreign-key-violation code — used to turn "can't delete,
-// something still points at this row" into a friendly message instead
-// of a raw database error.
-const FK_VIOLATION = "23503";
+// Postgres' foreign-key-violation code — used server-side (see
+// app/api/admin/courses/[courseId]/route.ts and .../players/[playerId])
+// to turn "can't delete, something still points at this row" into a
+// friendly message instead of a raw database error.
+export const FK_VIOLATION = "23503";
 
 /**
  * Deletes a course from the queue. Blocked by the database (and
  * reported here as a friendly error) if any round has already used
- * it — deleting would corrupt that round's history.
+ * it — deleting would corrupt that round's history. Admin-only.
  */
 export async function deleteCourse(courseId: string): Promise<void> {
-  const { error } = await supabase.from("courses").delete().eq("id", courseId);
-  if (error) {
-    if (error.code === FK_VIOLATION) {
-      throw new Error("Can't delete — this course has already been used in a round.");
-    }
-    throw new Error(`Couldn't delete the course: ${error.message}`);
-  }
+  const res = await fetch(`/api/admin/courses/${courseId}`, { method: "DELETE" });
+  await throwOnError(res, "Couldn't delete the course");
 }
 
 /**
@@ -121,15 +132,11 @@ export async function deleteCourse(courseId: string): Promise<void> {
  * they've already recorded scores in a past round — deleting would
  * corrupt that round's history. Removing them from a foursome
  * they're only listed in (no scores yet) happens automatically.
+ * Admin-only.
  */
 export async function deletePlayer(playerId: string): Promise<void> {
-  const { error } = await supabase.from("players").delete().eq("id", playerId);
-  if (error) {
-    if (error.code === FK_VIOLATION) {
-      throw new Error("Can't delete — this player already has scores recorded in a past round.");
-    }
-    throw new Error(`Couldn't delete the player: ${error.message}`);
-  }
+  const res = await fetch(`/api/admin/players/${playerId}`, { method: "DELETE" });
+  await throwOnError(res, "Couldn't delete the player");
 }
 
 export type RoundStatus = "upcoming" | "in_progress" | "completed" | "archived";
@@ -165,17 +172,25 @@ export async function fetchCurrentRoundId(tripId: string): Promise<string> {
 
 /**
  * Archives a round — hides it from the main History list without
- * deleting anything. Reversible via restoreRound.
+ * deleting anything. Reversible via restoreRound. Admin-only.
  */
 export async function archiveRound(roundId: string): Promise<void> {
-  const { error } = await supabase.from("rounds").update({ status: "archived" }).eq("id", roundId);
-  if (error) throw new Error(`Couldn't archive the round: ${error.message}`);
+  const res = await fetch(`/api/admin/round/${roundId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status: "archived" }),
+  });
+  await throwOnError(res, "Couldn't archive the round");
 }
 
-/** Un-archives a round, putting it back in History as completed. */
+/** Un-archives a round, putting it back in History as completed. Admin-only. */
 export async function restoreRound(roundId: string): Promise<void> {
-  const { error } = await supabase.from("rounds").update({ status: "completed" }).eq("id", roundId);
-  if (error) throw new Error(`Couldn't restore the round: ${error.message}`);
+  const res = await fetch(`/api/admin/round/${roundId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status: "completed" }),
+  });
+  await throwOnError(res, "Couldn't restore the round");
 }
 
 /**
@@ -183,11 +198,11 @@ export async function restoreRound(roundId: string): Promise<void> {
  * never actually happened. Unlike archiveRound, this can't be undone:
  * it cascades to the round's groups, group_players, hole_scores, and
  * games. Player and course rows themselves are untouched (they're
- * trip-scoped, not round-scoped).
+ * trip-scoped, not round-scoped). Admin-only.
  */
 export async function deleteRound(roundId: string): Promise<void> {
-  const { error } = await supabase.from("rounds").delete().eq("id", roundId);
-  if (error) throw new Error(`Couldn't delete the round: ${error.message}`);
+  const res = await fetch(`/api/admin/round/${roundId}`, { method: "DELETE" });
+  await throwOnError(res, "Couldn't delete the round");
 }
 
 /** The round's Skins game config, if one was set up — null if Skins isn't being played. */
@@ -221,45 +236,40 @@ export async function fetchRyderCupGame(
   return { gameId: data.id, config: data.config as RyderCupGameConfig };
 }
 
-/** Saves a round's Ryder Cup game config (only if at least one match is configured). */
-export async function createRyderCupGame(roundId: string, config: RyderCupGameConfig): Promise<void> {
-  if (config.matches.length === 0) return;
-  const { error } = await supabase
-    .from("games")
-    .insert({ round_id: roundId, type: "ryder_cup", name: "Ryder Cup", config });
-  if (error) throw new Error(`Couldn't save the Ryder Cup game: ${error.message}`);
-}
-
 /**
  * Updates a round's Ryder Cup config in place — used for manual match
  * overrides and mid-round pairing edits. Never touches hole_scores;
- * an override only ever changes what's stored here.
+ * an override only ever changes what's stored here. Deliberately
+ * NOT admin-gated — this is used live, mid-round, by whoever's
+ * running the Ryder Cup board, not just the trip admin. Only game
+ * *creation* (part of finishing the Setup Wizard) requires admin —
+ * see createRoundWithRoster below.
  */
 export async function updateRyderCupGame(gameId: string, config: RyderCupGameConfig): Promise<void> {
   const { error } = await supabase.from("games").update({ config }).eq("id", gameId);
   if (error) throw new Error(`Couldn't update the Ryder Cup game: ${error.message}`);
 }
 
-/** Saves a round's Skins game config (only if Gross or Net is actually enabled). */
-export async function createSkinsGame(roundId: string, config: SkinsGameConfig): Promise<void> {
-  if (!config.gross && !config.net) return;
-  const { error } = await supabase
-    .from("games")
-    .insert({ round_id: roundId, type: "skins", name: "Skins", config });
-  if (error) throw new Error(`Couldn't save the skins game: ${error.message}`);
-}
-
 // Set when a roster entry is an existing trip player being reused —
 // present means "use this id, don't insert a new row."
 export type RosterPlayer = { localId: string; name: string; handicapIndex: number; existingId?: string };
-export type RosterGroup = { name: string; localPlayerIds: string[] };
+export type RosterGroup = {
+  name: string;
+  localPlayerIds: string[];
+  // Wizard-local player id of this group's chosen scorekeeper (see
+  // components/setup/ScorekeeperStep.tsx), if one was picked —
+  // resolved server-side to a DB id and saved as groups.scorer_player_id.
+  scorekeeperLocalPlayerId?: string;
+};
 
 /**
  * Creates a brand-new round from the roster + foursomes built in the
  * Setup Wizard. Roster entries with an `existingId` (picked from the
  * trip's standing roster) are reused as-is rather than duplicated;
  * only genuinely new players get inserted. Any round still marked
- * in_progress for this trip is closed out first.
+ * in_progress for this trip is closed out first. Admin-only — the
+ * actual DB work happens server-side in lib/admin/roundAdmin.ts, run
+ * from app/api/admin/round/route.ts.
  */
 export async function createRoundWithRoster(
   tripId: string,
@@ -269,100 +279,12 @@ export async function createRoundWithRoster(
   skinsConfig?: SkinsGameConfig | null,
   ryderCupConfig?: RyderCupGameConfig | null
 ): Promise<string> {
-  const namedPlayers = players.filter(p => p.name.trim().length > 0);
-  if (namedPlayers.length === 0) {
-    throw new Error("Add at least one player before finishing setup.");
-  }
-
-  const idMap = new Map<string, string>();
-
-  const toInsert = namedPlayers.filter(p => !p.existingId);
-  if (toInsert.length > 0) {
-    const { data: insertedPlayers, error: playersErr } = await supabase
-      .from("players")
-      .insert(toInsert.map(p => ({ trip_id: tripId, name: p.name.trim(), handicap_index: p.handicapIndex })))
-      .select("id");
-    if (playersErr || !insertedPlayers || insertedPlayers.length !== toInsert.length) {
-      throw new Error(playersErr?.message ?? "Couldn't save players");
-    }
-    // Supabase preserves insert-array order in the returned rows, so
-    // pairing by index maps each wizard-local id to its new DB id.
-    toInsert.forEach((p, i) => idMap.set(p.localId, insertedPlayers[i].id));
-  }
-
-  for (const p of namedPlayers) {
-    if (!p.existingId) continue;
-    idMap.set(p.localId, p.existingId);
-    // Keep the roster's handicap current if it was edited this round.
-    const { error: updateErr } = await supabase
-      .from("players")
-      .update({ handicap_index: p.handicapIndex, name: p.name.trim() })
-      .eq("id", p.existingId);
-    if (updateErr) throw new Error(`Couldn't update ${p.name}: ${updateErr.message}`);
-  }
-
-  const { error: closeErr } = await supabase
-    .from("rounds")
-    .update({ status: "completed" })
-    .eq("trip_id", tripId)
-    .eq("status", "in_progress");
-  if (closeErr) throw new Error(`Couldn't close out the previous round: ${closeErr.message}`);
-
-  const { data: newRound, error: roundErr } = await supabase
-    .from("rounds")
-    .insert({
-      trip_id: tripId,
-      course_id: courseId,
-      tee_name: DEMO_TEE_NAME,
-      date: new Date().toISOString().slice(0, 10),
-      status: "in_progress",
-    })
-    .select("id")
-    .single();
-  if (roundErr || !newRound) throw new Error(roundErr?.message ?? "Couldn't create the round");
-
-  // Fall back to one big group if foursomes weren't set up, so
-  // scoring still works with whatever roster was entered.
-  const effectiveGroups: RosterGroup[] =
-    groups.length > 0
-      ? groups
-      : [{ name: "All players", localPlayerIds: namedPlayers.map(p => p.localId) }];
-
-  for (const g of effectiveGroups) {
-    const dbPlayerIds = g.localPlayerIds.map(lid => idMap.get(lid)).filter((id): id is string => !!id);
-    if (dbPlayerIds.length === 0) continue;
-
-    const { data: newGroup, error: groupErr } = await supabase
-      .from("groups")
-      .insert({ round_id: newRound.id, name: g.name })
-      .select("id")
-      .single();
-    if (groupErr || !newGroup) throw new Error(groupErr?.message ?? "Couldn't set up a foursome");
-
-    const { error: gpErr } = await supabase
-      .from("group_players")
-      .insert(dbPlayerIds.map(playerId => ({ group_id: newGroup.id, player_id: playerId })));
-    if (gpErr) throw new Error(`Couldn't add players to a foursome: ${gpErr.message}`);
-  }
-
-  if (skinsConfig) {
-    await createSkinsGame(newRound.id, skinsConfig);
-  }
-
-  if (ryderCupConfig) {
-    // Matches were built in the wizard against wizard-local player
-    // ids — remap through the same idMap used for groups above so
-    // they point at the real DB player rows.
-    const remapped: RyderCupGameConfig = {
-      ...ryderCupConfig,
-      matches: ryderCupConfig.matches.map(m => ({
-        ...m,
-        teamAPlayerIds: m.teamAPlayerIds.map(lid => idMap.get(lid) ?? lid),
-        teamBPlayerIds: m.teamBPlayerIds.map(lid => idMap.get(lid) ?? lid),
-      })),
-    };
-    await createRyderCupGame(newRound.id, remapped);
-  }
-
-  return newRound.id;
+  const res = await fetch("/api/admin/round", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tripId, courseId, players, groups, skinsConfig, ryderCupConfig }),
+  });
+  await throwOnError(res, "Couldn't finish setup");
+  const { roundId } = await res.json();
+  return roundId;
 }
