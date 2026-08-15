@@ -10,7 +10,7 @@ import {
 import { useLiveRound } from "@/lib/liveRound";
 
 export default function Leaderboard({ roundId }: { roundId: string }) {
-  const [view, setView] = useState<"team" | "individual">("team");
+  const [view, setView] = useState<"team" | "individual">("individual");
   const [scoreMode, setScoreMode] = useState<"gross" | "net">("gross");
 
   // Live, shared with every other device watching this same round —
@@ -82,20 +82,20 @@ export default function Leaderboard({ roundId }: { roundId: string }) {
     <div>
       <div className="flex gap-1 mx-5 mt-4 p-1 bg-surface border border-[color:var(--border)] rounded-xl">
         <button
-          onClick={() => setView("team")}
-          className={`flex-1 text-sm font-semibold py-2 rounded-lg ${
-            view === "team" ? "bg-surface-raised text-chalk" : "text-chalk-dim"
-          }`}
-        >
-          Team
-        </button>
-        <button
           onClick={() => setView("individual")}
           className={`flex-1 text-sm font-semibold py-2 rounded-lg ${
             view === "individual" ? "bg-surface-raised text-chalk" : "text-chalk-dim"
           }`}
         >
           Individual
+        </button>
+        <button
+          onClick={() => setView("team")}
+          className={`flex-1 text-sm font-semibold py-2 rounded-lg ${
+            view === "team" ? "bg-surface-raised text-chalk" : "text-chalk-dim"
+          }`}
+        >
+          Team
         </button>
       </div>
 

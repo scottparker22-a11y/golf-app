@@ -28,7 +28,7 @@ export default function RoundLeaderboardPage({
           </div>
           <AdminButton tripId={params.tripId} />
         </div>
-        <h1 className="font-display font-extrabold text-3xl leading-none mb-1">Trip {params.tripId}</h1>
+        <h1 className="font-display font-extrabold text-3xl leading-none mb-1">Leaderboard</h1>
         <div className="text-sm text-chalk-dim font-medium">Round in progress</div>
       </div>
 
