@@ -19,7 +19,7 @@ export default function RoundSkinsPage({
           <span className="w-[7px] h-[7px] rounded-full bg-turf shadow-[0_0_0_3px_rgba(111,207,151,0.22)]" />
           Live
         </div>
-        <h1 className="font-display font-extrabold text-3xl leading-none mb-1">Trip {params.tripId}</h1>
+        <h1 className="font-display font-extrabold text-3xl leading-none mb-1">Skins</h1>
         <div className="text-sm text-chalk-dim font-medium">Skins board</div>
       </div>
 
