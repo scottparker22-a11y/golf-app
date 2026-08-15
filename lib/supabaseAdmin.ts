@@ -23,5 +23,10 @@ export function getSupabaseAdmin() {
   }
   return createClient(supabaseUrl, serviceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false },
+    // Same reasoning as lib/supabase.ts — never let Next's fetch Data
+    // Cache serve a stale read through this client either.
+    global: {
+      fetch: (input, init) => fetch(input, { ...init, cache: "no-store" }),
+    },
   });
 }

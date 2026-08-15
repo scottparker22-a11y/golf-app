@@ -164,10 +164,20 @@ export async function fetchRounds(tripId: string): Promise<RoundSummary[]> {
   return (data ?? []).map(r => ({ id: r.id, date: r.date, status: r.status as RoundStatus }));
 }
 
-/** The trip's current round — most recent in_progress, else most recent overall (archived rounds excluded). */
-export async function fetchCurrentRoundId(tripId: string): Promise<string> {
-  const rounds = (await fetchRounds(tripId)).filter(r => r.status !== "archived");
-  return rounds.find(r => r.status === "in_progress")?.id ?? rounds[0]?.id ?? DEMO_ROUND_ID;
+/**
+ * The trip's current "live" round — most recent in_progress, else most
+ * recent upcoming. A completed (or archived) round is never treated
+ * as current: once a round wraps up, the un-scoped /leaderboard and
+ * /scorecard links shouldn't keep landing on it as if it were still
+ * being played. Returns null when there's no in_progress or upcoming
+ * round to default to — callers should send the visitor to Round
+ * History instead of guessing which past round they meant.
+ */
+export async function fetchCurrentRoundId(tripId: string): Promise<string | null> {
+  const rounds = (await fetchRounds(tripId)).filter(
+    r => r.status !== "archived" && r.status !== "completed"
+  );
+  return rounds.find(r => r.status === "in_progress")?.id ?? rounds[0]?.id ?? null;
 }
 
 /**
