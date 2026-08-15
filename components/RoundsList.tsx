@@ -2,7 +2,16 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { archiveRound, deleteRound, fetchRounds, restoreRound, type RoundSummary } from "@/lib/rounds";
+import {
+  archiveRound,
+  deleteRound,
+  fetchCurrentRoundSelection,
+  fetchRounds,
+  restoreRound,
+  setCurrentRoundSelection,
+  type RoundSummary,
+} from "@/lib/rounds";
+import { useIsAdmin } from "@/lib/useIsAdmin";
 
 const STATUS_STYLE: Record<string, string> = {
   in_progress: "bg-turf/15 text-turf",
@@ -29,17 +38,44 @@ function formatDate(iso: string) {
 type PendingConfirm = { id: string; action: "archive" | "delete" };
 
 export default function RoundsList({ tripId, tripDbId }: { tripId: string; tripDbId: string }) {
+  const { isAdmin } = useIsAdmin();
   const [rounds, setRounds] = useState<RoundSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<PendingConfirm | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const [liveRoundId, setLiveRoundId] = useState<string | null>(null);
+  const [pinBusy, setPinBusy] = useState(false);
 
   useEffect(() => {
     fetchRounds(tripDbId)
       .then(setRounds)
       .catch(e => setError(e instanceof Error ? e.message : "Couldn't load rounds"));
+    fetchCurrentRoundSelection(tripDbId)
+      .then(setLiveRoundId)
+      .catch(() => {
+        // Non-fatal — the bubble just won't show a selection yet.
+      });
   }, [tripDbId]);
+
+  // Tap the bubble next to a round's date to pin it as "the" Live
+  // Leaderboard/Scorecard round (see lib/rounds.ts fetchCurrentRoundId)
+  // — tapping the already-pinned one clears the pin, reverting to the
+  // automatic in_progress/upcoming pick. Admin-only; see AdminButton
+  // elsewhere for the same isAdmin gating pattern.
+  const handleTogglePin = async (roundId: string) => {
+    const next = liveRoundId === roundId ? null : roundId;
+    setPinBusy(true);
+    setError(null);
+    try {
+      await setCurrentRoundSelection(next);
+      setLiveRoundId(next);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't update the live round");
+    } finally {
+      setPinBusy(false);
+    }
+  };
 
   const handleArchive = async (roundId: string) => {
     setBusyId(roundId);
@@ -99,8 +135,23 @@ export default function RoundsList({ tripId, tripDbId }: { tripId: string; tripD
 
   const renderRow = (r: RoundSummary, opts: { faded?: boolean; onRestore?: boolean } = {}) => {
     const isPendingHere = pending?.id === r.id;
+    const isLive = liveRoundId === r.id;
     return (
       <div key={r.id} className="flex items-center gap-2 mb-2">
+        {!opts.onRestore && (
+          <button
+            type="button"
+            onClick={isAdmin ? () => handleTogglePin(r.id) : undefined}
+            disabled={pinBusy}
+            aria-label={isLive ? "Live Leaderboard round — tap to unpin" : "Set as Live Leaderboard round"}
+            title={isLive ? "This is the Live Leaderboard round" : isAdmin ? "Set as Live Leaderboard round" : ""}
+            className={`flex-shrink-0 w-[18px] h-[18px] rounded-full border-2 flex items-center justify-center disabled:opacity-60 ${
+              isLive ? "border-turf" : "border-[color:var(--border-strong)]"
+            } ${isAdmin ? "cursor-pointer" : "cursor-default"}`}
+          >
+            {isLive && <span className="w-[9px] h-[9px] rounded-full bg-turf" />}
+          </button>
+        )}
         <Link
           href={`/trip/${tripId}/round/${r.id}/leaderboard`}
           className={`flex-1 flex items-center justify-between p-3.5 bg-surface border border-[color:var(--border)] rounded-xl min-w-0 ${
@@ -162,6 +213,13 @@ export default function RoundsList({ tripId, tripDbId }: { tripId: string; tripD
 
   return (
     <div className="px-5 pt-4 pb-8">
+      {activeRounds.length > 0 && (
+        <p className="text-[11.5px] text-chalk-dim leading-relaxed mb-3 flex items-center gap-1.5">
+          <span className="inline-block w-[9px] h-[9px] rounded-full border-2 border-turf flex-shrink-0" />
+          marks the round Live Leaderboard and Enter Scores open to.
+          {isAdmin ? " Tap a bubble to change it." : ""}
+        </p>
+      )}
       {activeRounds.length === 0 ? (
         <p className="text-[13px] text-chalk-dim text-center py-6">No rounds yet.</p>
       ) : (

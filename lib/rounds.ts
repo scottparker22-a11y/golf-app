@@ -165,15 +165,48 @@ export async function fetchRounds(tripId: string): Promise<RoundSummary[]> {
 }
 
 /**
- * The trip's current "live" round — most recent in_progress, else most
- * recent upcoming. A completed (or archived) round is never treated
- * as current: once a round wraps up, the un-scoped /leaderboard and
- * /scorecard links shouldn't keep landing on it as if it were still
- * being played. Returns null when there's no in_progress or upcoming
- * round to default to — callers should send the visitor to Round
- * History instead of guessing which past round they meant.
+ * An admin's manual pin (see the bubble selector in Round History /
+ * components/RoundsList.tsx) for which round the un-scoped
+ * /leaderboard and /scorecard links should land on — takes priority
+ * over fetchCurrentRoundId's automatic guess. Null if nothing's
+ * pinned. Read is open (anon client); writing it goes through
+ * setCurrentRoundSelection below, admin-only.
+ */
+export async function fetchCurrentRoundSelection(tripId: string): Promise<string | null> {
+  const { data, error } = await supabase.from("trips").select("current_round_id").eq("id", tripId).maybeSingle();
+  if (error) throw new Error(`Couldn't load the pinned round: ${error.message}`);
+  return data?.current_round_id ?? null;
+}
+
+/**
+ * Pins (or clears, passing null) which round is "the" live round for
+ * the trip. Admin-only.
+ */
+export async function setCurrentRoundSelection(roundId: string | null): Promise<void> {
+  const res = await fetch("/api/admin/current-round", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ roundId }),
+  });
+  await throwOnError(res, "Couldn't update the live round");
+}
+
+/**
+ * The trip's current "live" round. An admin's manual pin (see
+ * fetchCurrentRoundSelection above) always wins if one's set —
+ * otherwise falls back to the most recent in_progress round, else
+ * most recent upcoming. A completed (or archived) round is never
+ * picked automatically: once a round wraps up, the un-scoped
+ * /leaderboard and /scorecard links shouldn't keep landing on it as
+ * if it were still being played (an admin can still pin one manually
+ * if they really want to). Returns null when there's nothing to
+ * default to — callers should send the visitor to Round History
+ * instead of guessing which past round they meant.
  */
 export async function fetchCurrentRoundId(tripId: string): Promise<string | null> {
+  const pinned = await fetchCurrentRoundSelection(tripId);
+  if (pinned) return pinned;
+
   const rounds = (await fetchRounds(tripId)).filter(
     r => r.status !== "archived" && r.status !== "completed"
   );
