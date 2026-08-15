@@ -87,7 +87,7 @@ export default function Scorecard({ roundId }: { roundId: string }) {
             <table className="border-collapse text-[12px] w-full">
               <thead>
                 <tr>
-                  <th className="sticky left-0 bg-surface text-left px-2.5 py-2 text-chalk-dim font-semibold text-[11px] uppercase min-w-[68px]">
+                  <th className="sticky left-0 z-10 bg-surface text-left px-2.5 py-2 text-chalk-dim font-semibold text-[11px] uppercase min-w-[68px] border-r border-[color:var(--border-strong)] shadow-[2px_0_4px_-2px_rgba(0,0,0,0.25)]">
                     Hole
                   </th>
                   {frontHoles.map(h => (
@@ -105,7 +105,7 @@ export default function Scorecard({ roundId }: { roundId: string }) {
                   <th className={subtotalHeaderClass}>TOT</th>
                 </tr>
                 <tr>
-                  <th className="sticky left-0 bg-surface text-left px-2.5 py-1.5 text-chalk-dim font-medium text-[11px]">
+                  <th className="sticky left-0 z-10 bg-surface text-left px-2.5 py-1.5 text-chalk-dim font-medium text-[11px] border-r border-[color:var(--border-strong)] shadow-[2px_0_4px_-2px_rgba(0,0,0,0.25)]">
                     Par
                   </th>
                   {frontHoles.map(h => (
@@ -127,7 +127,7 @@ export default function Scorecard({ roundId }: { roundId: string }) {
                   <th className={subtotalHeaderClass + " font-mono"}>{sumPar(holes)}</th>
                 </tr>
                 <tr>
-                  <th className="sticky left-0 bg-surface text-left px-2.5 py-1.5 text-chalk-dim font-medium text-[11px]">
+                  <th className="sticky left-0 z-10 bg-surface text-left px-2.5 py-1.5 text-chalk-dim font-medium text-[11px] border-r border-[color:var(--border-strong)] shadow-[2px_0_4px_-2px_rgba(0,0,0,0.25)]">
                     Hcp
                   </th>
                   {frontHoles.map(h => (
@@ -184,7 +184,7 @@ export default function Scorecard({ roundId }: { roundId: string }) {
 
                   return (
                     <tr key={playerId} className="border-t border-[color:var(--border)]">
-                      <td className="sticky left-0 bg-surface px-2.5 py-1.5 font-semibold text-[12px] whitespace-nowrap">
+                      <td className="sticky left-0 z-10 bg-surface px-2.5 py-1.5 font-semibold text-[12px] whitespace-nowrap border-r border-[color:var(--border-strong)] shadow-[2px_0_4px_-2px_rgba(0,0,0,0.25)]">
                         {p.name}
                         <span className="text-chalk-dim font-mono text-[10px] ml-1">
                           ({courseHandicap})
