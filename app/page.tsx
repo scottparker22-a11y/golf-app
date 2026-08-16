@@ -17,22 +17,25 @@ const NAV_ITEMS: { href: string; emoji: string; label: string; ring: string }[] 
 // since trip creation isn't wired up yet.
 export default function Home() {
   return (
-    <main className="min-h-screen max-w-[460px] mx-auto flex flex-col">
-      <PageNav />
+    // One continuous background for the whole page — colors sampled
+    // directly from the logo mockup's own backdrop (#1D371D fading to
+    // #011C11) rather than guessed/approximated. Earlier attempts put
+    // a plain gradient behind just the hero image and left the rest
+    // of the page on the app's default background, which still read
+    // as a "box" wherever the two met. A gradient wash at the very
+    // top fades to transparent, so the flat #011C11 base underneath
+    // is what carries all the way to the bottom — no second seam.
+    <main className="relative min-h-screen max-w-[460px] mx-auto flex flex-col bg-[#011C11] overflow-hidden">
+      <div className="absolute inset-x-0 top-0 h-[420px] bg-gradient-to-b from-[#1D371D] to-transparent pointer-events-none" />
+      <div className="relative flex flex-col flex-1">
+        <PageNav />
 
-      {/* Logo sits in its own gradient-backed hero instead of
-          full-bleed — the image's own dark background blends into a
-          matching backdrop (fairway-900 -> fairway-950, same tokens
-          the rest of the app already uses) rather than reading as a
-          hard-edged picture dropped on the page. */}
-      <section className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-b from-fairway-900 to-fairway-950" />
-        <div className="relative flex flex-col items-center px-8 pt-6 pb-2">
+        <div className="flex flex-col items-center px-8 pt-6 pb-2">
           <Image
             src="/parker-logo-badge.png"
             alt="PAR-ker Score Keeper"
-            width={697}
-            height={438}
+            width={853}
+            height={800}
             priority
             className="w-full max-w-[380px] h-auto object-contain"
           />
@@ -46,24 +49,24 @@ export default function Home() {
             <span className="flex-1 h-px bg-turf/40" />
           </div>
         </div>
-      </section>
 
-      <section className="flex-1 flex flex-col px-6 pt-8 pb-10 text-center">
-        <p className="text-base leading-7 text-chalk-dim max-w-[320px] mx-auto">
-          Live golf scoring for your buddy trip — leaderboard, scorecard, skins, and Ryder Cup,
-          updating in real time from whoever&apos;s keeping score.
-        </p>
+        <section className="flex-1 flex flex-col px-6 pt-8 pb-10 text-center">
+          <p className="text-base leading-7 text-chalk-dim max-w-[320px] mx-auto">
+            Live golf scoring for your buddy trip — leaderboard, scorecard, skins, and Ryder
+            Cup, updating in real time from whoever&apos;s keeping score.
+          </p>
 
-        <div className="mt-11 grid grid-cols-3 gap-3">
-          {NAV_ITEMS.map(item => (
-            <HomeAction key={item.href} {...item} />
-          ))}
-        </div>
+          <div className="mt-11 grid grid-cols-3 gap-3">
+            {NAV_ITEMS.map(item => (
+              <HomeAction key={item.href} {...item} />
+            ))}
+          </div>
 
-        <div className="mx-auto mt-14 max-w-[200px] w-full border-t border-[color:var(--border)] pt-8">
-          <AdminSetupLink tripId="demo" />
-        </div>
-      </section>
+          <div className="mx-auto mt-14 max-w-[200px] w-full border-t border-white/10 pt-8">
+            <AdminSetupLink tripId="demo" />
+          </div>
+        </section>
+      </div>
     </main>
   );
 }
