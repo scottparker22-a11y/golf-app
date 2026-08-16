@@ -4,9 +4,11 @@ import { useMemo, useState } from "react";
 import type { Hole } from "@/lib/types";
 import {
   approxCourseHandicap,
-  calculateTwoManTeamStandings,
+  calculateTwoManMatchPlay,
+  formatTwoManMargin,
   strokesReceived,
   usesPairing,
+  type TwoManMatchPlayResult,
 } from "@/lib/scoring";
 import { useLiveRound } from "@/lib/liveRound";
 
@@ -24,13 +26,19 @@ export default function Scorecard({ roundId }: { roundId: string }) {
   }, [players]);
 
   // Groups set up with 2-man pairing (Best Ball, or Stroke Play opted
-  // into "Teams of 2" — see FoursomesStep.tsx). Same computation the
-  // Leaderboard's Team view uses; here it also drives the Teams
-  // toggle's per-hole cells via grossByHole.
-  const twoManStandings = useMemo(
-    () => calculateTwoManTeamStandings(holeScores, players, holes, teams.filter(usesPairing), courseHandicaps),
-    [teams, holeScores, players, holes, courseHandicaps]
-  );
+  // into "Teams of 2" — see FoursomesStep.tsx) get head-to-head match
+  // play in Teams mode: whoever's best ball is lower wins the hole
+  // (highlighted below), with a running Up/Down/Square status row —
+  // same idea as the "We/They +/-" row on a paper scorecard. Gross
+  // only, keyed by group id.
+  const matchPlayByGroup = useMemo(() => {
+    const map: Record<string, TwoManMatchPlayResult> = {};
+    for (const team of teams) {
+      if (!usesPairing(team)) continue;
+      map[team.id] = calculateTwoManMatchPlay(holeScores, players, holes, team);
+    }
+    return map;
+  }, [teams, holeScores, players, holes]);
 
   const scoreFor = (playerId: string, holeNumber: number) =>
     holeScores.find(s => s.playerId === playerId && s.holeNumber === holeNumber)?.strokes;
@@ -104,24 +112,32 @@ export default function Scorecard({ roundId }: { roundId: string }) {
       </p>
 
       {teams.some(usesPairing) && (
-        <div className="flex gap-1 mb-4 p-1 bg-surface border border-[color:var(--border)] rounded-xl">
-          <button
-            onClick={() => setMode("players")}
-            className={`flex-1 text-sm font-semibold py-2 rounded-lg ${
-              mode === "players" ? "bg-surface-raised text-chalk" : "text-chalk-dim"
-            }`}
-          >
-            Players
-          </button>
-          <button
-            onClick={() => setMode("teams")}
-            className={`flex-1 text-sm font-semibold py-2 rounded-lg ${
-              mode === "teams" ? "bg-surface-raised text-chalk" : "text-chalk-dim"
-            }`}
-          >
-            Teams
-          </button>
-        </div>
+        <>
+          <div className="flex gap-1 mb-2 p-1 bg-surface border border-[color:var(--border)] rounded-xl">
+            <button
+              onClick={() => setMode("players")}
+              className={`flex-1 text-sm font-semibold py-2 rounded-lg ${
+                mode === "players" ? "bg-surface-raised text-chalk" : "text-chalk-dim"
+              }`}
+            >
+              Players
+            </button>
+            <button
+              onClick={() => setMode("teams")}
+              className={`flex-1 text-sm font-semibold py-2 rounded-lg ${
+                mode === "teams" ? "bg-surface-raised text-chalk" : "text-chalk-dim"
+              }`}
+            >
+              Teams
+            </button>
+          </div>
+          {mode === "teams" && (
+            <p className="text-[11.5px] text-chalk-dim leading-relaxed mb-4">
+              Head-to-head, best ball per hole — the highlighted box is whoever's score won the
+              hole. The Match row tracks who's up (E = even).
+            </p>
+          )}
+        </>
       )}
 
       {teams.map(team => (
@@ -190,101 +206,141 @@ export default function Scorecard({ roundId }: { roundId: string }) {
                 </tr>
               </thead>
               <tbody>
-                {mode === "teams" && usesPairing(team)
-                  ? twoManStandings
-                      .filter(pair => pair.groupId === team.id)
-                      .map(pair => {
-                        const sumTeamStrokes = (hs: Hole[]) => {
-                          const entered = hs
-                            .map(h => pair.grossByHole[h.number])
-                            .filter((s): s is number => s !== undefined);
-                          return entered.length ? entered.reduce((sum, s) => sum + s, 0) : undefined;
-                        };
-                        const renderTeamHoleCell = (h: Hole) => (
-                          <td key={h.number} className="p-0.5">
-                            <div
-                              className={`w-[36px] h-[32px] flex items-center justify-center bg-surface-raised/60 border border-[color:var(--border)] rounded-md font-mono font-semibold ${relToParClass(
-                                pair.grossByHole[h.number],
-                                h.par
-                              )}`}
-                            >
-                              {pair.grossByHole[h.number] ?? "–"}
-                            </div>
-                          </td>
-                        );
-                        return (
-                          <tr key={pair.teamKey} className="border-t border-[color:var(--border)]">
-                            <td className="sticky left-0 z-10 bg-surface px-2.5 py-1.5 font-semibold text-[12px] whitespace-nowrap border-r border-[color:var(--border-strong)] shadow-[2px_0_4px_-2px_rgba(0,0,0,0.25)]">
-                              {pair.name}
-                            </td>
-                            {frontHoles.map(renderTeamHoleCell)}
-                            {hasBack && (
-                              <td className={subtotalCellClass}>{sumTeamStrokes(frontHoles) ?? "–"}</td>
-                            )}
-                            {backHoles.map(renderTeamHoleCell)}
-                            {hasBack && (
-                              <td className={subtotalCellClass}>{sumTeamStrokes(backHoles) ?? "–"}</td>
-                            )}
-                            <td className={subtotalCellClass}>{sumTeamStrokes(holes) ?? "–"}</td>
-                          </tr>
-                        );
-                      })
-                  : team.playerIds.map(playerId => {
-                      const p = players.find(pl => pl.id === playerId);
-                      if (!p) return null;
-                      const courseHandicap = courseHandicapFor(playerId);
+                {(() => {
+                  const renderPlayerRow = (playerId: string, winningHoles: Set<number>) => {
+                    const p = players.find(pl => pl.id === playerId);
+                    if (!p) return null;
+                    const courseHandicap = courseHandicapFor(playerId);
 
-                      const renderHoleCell = (h: Hole) => {
-                        const strokes = scoreFor(playerId, h.number);
-                        const getsStroke = strokesReceived(h, courseHandicap) > 0;
-                        return (
-                          <td key={h.number} className="p-0.5">
-                            <div className="relative">
-                              <input
-                                type="number"
-                                inputMode="numeric"
-                                min={1}
-                                max={15}
-                                value={strokes ?? ""}
-                                onChange={e =>
-                                  handleChange(team.id, playerId, h.number, e.target.value)
-                                }
-                                className={`w-[36px] h-[32px] text-center bg-surface-raised border rounded-md font-mono font-semibold outline-none focus:border-turf ${relToParClass(
-                                  strokes,
-                                  h.par
-                                )} ${getsStroke ? "border-sand" : "border-[color:var(--border-strong)]"}`}
-                              />
-                              {getsStroke && (
-                                <span
-                                  title="Handicap stroke"
-                                  className="absolute top-[2px] right-[2px] w-[5px] h-[5px] rounded-full bg-sand pointer-events-none"
-                                />
-                              )}
-                            </div>
-                          </td>
-                        );
-                      };
-
+                    const renderHoleCell = (h: Hole) => {
+                      const strokes = scoreFor(playerId, h.number);
+                      const getsStroke = strokesReceived(h, courseHandicap) > 0;
+                      const wonHole = winningHoles.has(h.number);
                       return (
-                        <tr key={playerId} className="border-t border-[color:var(--border)]">
-                          <td className="sticky left-0 z-10 bg-surface px-2.5 py-1.5 font-semibold text-[12px] whitespace-nowrap border-r border-[color:var(--border-strong)] shadow-[2px_0_4px_-2px_rgba(0,0,0,0.25)]">
-                            {p.name}
-                            <span className="text-chalk-dim font-mono text-[10px] ml-1">
-                              ({courseHandicap})
-                            </span>
-                          </td>
-                          {frontHoles.map(renderHoleCell)}
-                          {hasBack && (
-                            <td className={subtotalCellClass}>{sumStrokes(playerId, frontHoles) ?? "–"}</td>
-                          )}
-                          {backHoles.map(renderHoleCell)}
-                          {hasBack && (
-                            <td className={subtotalCellClass}>{sumStrokes(playerId, backHoles) ?? "–"}</td>
-                          )}
-                          <td className={subtotalCellClass}>{sumStrokes(playerId, holes) ?? "–"}</td>
-                        </tr>
+                        <td key={h.number} className="p-0.5">
+                          <div className="relative">
+                            <input
+                              type="number"
+                              inputMode="numeric"
+                              min={1}
+                              max={15}
+                              value={strokes ?? ""}
+                              onChange={e => handleChange(team.id, playerId, h.number, e.target.value)}
+                              className={`w-[36px] h-[32px] text-center bg-surface-raised border rounded-md font-mono font-semibold outline-none focus:border-turf ${relToParClass(
+                                strokes,
+                                h.par
+                              )} ${
+                                wonHole
+                                  ? "border-turf ring-2 ring-turf/50"
+                                  : getsStroke
+                                  ? "border-sand"
+                                  : "border-[color:var(--border-strong)]"
+                              }`}
+                            />
+                            {getsStroke && (
+                              <span
+                                title="Handicap stroke"
+                                className="absolute top-[2px] right-[2px] w-[5px] h-[5px] rounded-full bg-sand pointer-events-none"
+                              />
+                            )}
+                          </div>
+                        </td>
                       );
-                    })}
+                    };
+
+                    return (
+                      <tr key={playerId} className="border-t border-[color:var(--border)]">
+                        <td className="sticky left-0 z-10 bg-surface px-2.5 py-1.5 font-semibold text-[12px] whitespace-nowrap border-r border-[color:var(--border-strong)] shadow-[2px_0_4px_-2px_rgba(0,0,0,0.25)]">
+                          {p.name}
+                          <span className="text-chalk-dim font-mono text-[10px] ml-1">({courseHandicap})</span>
+                        </td>
+                        {frontHoles.map(renderHoleCell)}
+                        {hasBack && (
+                          <td className={subtotalCellClass}>{sumStrokes(playerId, frontHoles) ?? "–"}</td>
+                        )}
+                        {backHoles.map(renderHoleCell)}
+                        {hasBack && (
+                          <td className={subtotalCellClass}>{sumStrokes(playerId, backHoles) ?? "–"}</td>
+                        )}
+                        <td className={subtotalCellClass}>{sumStrokes(playerId, holes) ?? "–"}</td>
+                      </tr>
+                    );
+                  };
+
+                  if (mode !== "teams" || !usesPairing(team)) {
+                    return team.playerIds.map(playerId => renderPlayerRow(playerId, new Set()));
+                  }
+
+                  const match = matchPlayByGroup[team.id];
+                  if (!match) return team.playerIds.map(playerId => renderPlayerRow(playerId, new Set()));
+
+                  // Which holes each player actually won, for the input
+                  // highlight — a hole can have zero (halved), one, or
+                  // both of a pair's players highlighted (tied within
+                  // the pair for that pair's best ball).
+                  const winsByPlayer: Record<string, Set<number>> = {};
+                  for (const id of team.playerIds) winsByPlayer[id] = new Set();
+                  for (const hr of match.holeResults) {
+                    for (const id of hr.winningPlayerIds) winsByPlayer[id]?.add(hr.hole);
+                  }
+
+                  // "Status at the turn/end" — the last decided hole's
+                  // margin within that segment, same as how a paper
+                  // scorecard's We/They row reads at OUT/IN.
+                  const marginAt = (hs: Hole[]) => {
+                    const decided = match.holeResults.filter(
+                      hr => hr.decided && hs.some(h => h.number === hr.hole)
+                    );
+                    return decided.length ? decided[decided.length - 1].margin : null;
+                  };
+
+                  const renderMatchHoleCell = (h: Hole) => {
+                    const hr = match.holeResults.find(r => r.hole === h.number);
+                    return (
+                      <td key={h.number} className="p-0.5">
+                        <div
+                          className={`w-[36px] h-[32px] flex items-center justify-center font-mono font-bold text-[11px] rounded-md ${
+                            hr?.decided
+                              ? hr.winner === "halved"
+                                ? "text-chalk-dim"
+                                : "text-turf"
+                              : "text-chalk-dim"
+                          }`}
+                        >
+                          {hr?.decided ? formatTwoManMargin(hr.margin as number) : "–"}
+                        </div>
+                      </td>
+                    );
+                  };
+
+                  return (
+                    <>
+                      {[...match.pairing1.playerIds, ...match.pairing2.playerIds].map(id =>
+                        renderPlayerRow(id, winsByPlayer[id] ?? new Set())
+                      )}
+                      <tr className="border-t border-[color:var(--border-strong)] bg-surface-raised/40">
+                        <td className="sticky left-0 z-10 bg-surface-raised/40 px-2.5 py-1.5 font-bold text-[11px] uppercase tracking-wide text-chalk-dim whitespace-nowrap border-r border-[color:var(--border-strong)]">
+                          Match
+                        </td>
+                        {frontHoles.map(renderMatchHoleCell)}
+                        {hasBack && (
+                          <td className={subtotalCellClass}>
+                            {marginAt(frontHoles) !== null ? formatTwoManMargin(marginAt(frontHoles) as number) : "–"}
+                          </td>
+                        )}
+                        {backHoles.map(renderMatchHoleCell)}
+                        {hasBack && (
+                          <td className={subtotalCellClass}>
+                            {marginAt(backHoles) !== null ? formatTwoManMargin(marginAt(backHoles) as number) : "–"}
+                          </td>
+                        )}
+                        <td className={subtotalCellClass}>
+                          {marginAt(holes) !== null ? formatTwoManMargin(marginAt(holes) as number) : "–"}
+                        </td>
+                      </tr>
+                    </>
+                  );
+                })()}
               </tbody>
             </table>
           </div>

@@ -789,3 +789,94 @@ export function calculateTwoManTeamStandings(
 
   return standings.sort((a, b) => a.relativeToPar - b.relativeToPar);
 }
+
+// ── TWO-MAN MATCH PLAY (Scorecard's Teams mode) ──────────────────
+// Same pairing data as calculateTwoManTeamStandings above, but the
+// Scorecard wants head-to-head match play instead of a running
+// stroke total: each hole, whichever pair's best ball (gross) is
+// lower wins the hole; the Scorecard highlights whoever's individual
+// score won it and shows a running Up/Down/Square status, same idea
+// as the "We/They +/-" row on a paper scorecard. Gross only — this
+// app's Scorecard doesn't have a net toggle anywhere else either.
+export type TwoManMatchPlayHoleResult = {
+  hole: number;
+  decided: boolean; // false = at least one side hasn't posted both scores yet
+  winner: "1" | "2" | "halved" | null; // null when not decided
+  winningPlayerIds: string[]; // whose score(s) actually won it, for highlighting — empty if halved/not decided
+  margin: number | null; // cumulative, positive = pairing "1" up, negative = pairing "2" up; null when not decided
+};
+
+export type TwoManMatchPlayResult = {
+  groupId: string;
+  pairing1: { playerIds: string[]; name: string };
+  pairing2: { playerIds: string[]; name: string };
+  holeResults: TwoManMatchPlayHoleResult[];
+};
+
+function pairingName(playerIds: string[], players: Player[]): string {
+  return (
+    playerIds
+      .map(id => players.find(p => p.id === id)?.name)
+      .filter((n): n is string => !!n)
+      .join(" & ") || "Team"
+  );
+}
+
+export function calculateTwoManMatchPlay(
+  scores: HoleScore[],
+  players: Player[],
+  holes: Hole[],
+  group: { id: string; playerIds: string[]; pairings: Record<string, "1" | "2"> }
+): TwoManMatchPlayResult {
+  const side1 = group.playerIds.filter(id => group.pairings[id] === "1");
+  const side2 = group.playerIds.filter(id => group.pairings[id] === "2");
+
+  const holeResults: TwoManMatchPlayHoleResult[] = [];
+  let margin = 0;
+
+  for (const hole of [...holes].sort((a, b) => a.number - b.number)) {
+    const scoreFor = (id: string) => scores.find(s => s.playerId === id && s.holeNumber === hole.number)?.strokes;
+
+    const side1Scores = side1.map(id => ({ id, strokes: scoreFor(id) }));
+    const side2Scores = side2.map(id => ({ id, strokes: scoreFor(id) }));
+    const side1Complete = side1Scores.every(s => s.strokes !== undefined);
+    const side2Complete = side2Scores.every(s => s.strokes !== undefined);
+
+    if (!side1Complete || !side2Complete) {
+      holeResults.push({ hole: hole.number, decided: false, winner: null, winningPlayerIds: [], margin: null });
+      continue;
+    }
+
+    const side1Best = Math.min(...side1Scores.map(s => s.strokes as number));
+    const side2Best = Math.min(...side2Scores.map(s => s.strokes as number));
+
+    let winner: "1" | "2" | "halved";
+    let winningPlayerIds: string[] = [];
+    if (side1Best < side2Best) {
+      winner = "1";
+      winningPlayerIds = side1Scores.filter(s => s.strokes === side1Best).map(s => s.id);
+      margin += 1;
+    } else if (side2Best < side1Best) {
+      winner = "2";
+      winningPlayerIds = side2Scores.filter(s => s.strokes === side2Best).map(s => s.id);
+      margin -= 1;
+    } else {
+      winner = "halved";
+    }
+
+    holeResults.push({ hole: hole.number, decided: true, winner, winningPlayerIds, margin });
+  }
+
+  return {
+    groupId: group.id,
+    pairing1: { playerIds: side1, name: pairingName(side1, players) },
+    pairing2: { playerIds: side2, name: pairingName(side2, players) },
+    holeResults,
+  };
+}
+
+/** "E" / "+1" / "-2" — positive favors pairing 1, negative favors pairing 2. */
+export function formatTwoManMargin(margin: number): string {
+  if (margin === 0) return "E";
+  return margin > 0 ? `+${margin}` : `${margin}`;
+}
