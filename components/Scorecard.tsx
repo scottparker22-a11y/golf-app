@@ -315,9 +315,12 @@ export default function Scorecard({ roundId }: { roundId: string }) {
 
                   return (
                     <>
-                      {[...match.pairing1.playerIds, ...match.pairing2.playerIds].map(id =>
-                        renderPlayerRow(id, winsByPlayer[id] ?? new Set())
-                      )}
+                      {match.pairing1.playerIds.map(id => renderPlayerRow(id, winsByPlayer[id] ?? new Set()))}
+                      <tr aria-hidden className="h-2">
+                        <td className="sticky left-0 z-10 bg-fairway-950 p-0 border-r border-[color:var(--border-strong)]" />
+                        <td colSpan={100} className="bg-fairway-950 p-0" />
+                      </tr>
+                      {match.pairing2.playerIds.map(id => renderPlayerRow(id, winsByPlayer[id] ?? new Set()))}
                       <tr className="border-t border-[color:var(--border-strong)] bg-surface-raised/40">
                         <td className="sticky left-0 z-10 bg-surface-raised/40 px-2.5 py-1.5 font-bold text-[11px] uppercase tracking-wide text-chalk-dim whitespace-nowrap border-r border-[color:var(--border-strong)]">
                           Match
