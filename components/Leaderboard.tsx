@@ -5,7 +5,9 @@ import {
   approxCourseHandicap,
   calculateIndividualLeaderboard,
   calculateSkins,
+  calculateTwoManTeamStandings,
   skinsWonByPlayer,
+  usesPairing,
 } from "@/lib/scoring";
 import { useLiveRound } from "@/lib/liveRound";
 
@@ -50,19 +52,53 @@ export default function Leaderboard({ roundId }: { roundId: string }) {
   const grossSkinsByPlayer = useMemo(() => skinsWonByPlayer(grossSkinsResults), [grossSkinsResults]);
   const netSkinsByPlayer = useMemo(() => skinsWonByPlayer(netSkinsResults), [netSkinsResults]);
 
+  // Groups set up with 2-man pairing (Best Ball, or Stroke Play opted
+  // into "Teams of 2" — see FoursomesStep.tsx) split into their two
+  // pairs here instead of showing as one whole-foursome total.
+  // Independent of the separate Ryder Cup Team A/B concept.
+  const twoManStandings = useMemo(
+    () => calculateTwoManTeamStandings(holeScores, players, holes, teams.filter(usesPairing), courseHandicaps),
+    [teams, holeScores, players, holes, courseHandicaps]
+  );
+
   const teamStandings = useMemo(() => {
     const sortKey = scoreMode === "net" ? "netRelativeToPar" : "relativeToPar";
-    return teams
-      .map(team => {
+    const rows: {
+      id: string;
+      name: string;
+      total: number;
+      holesPlayed: number;
+      grossSkinsCount: number;
+      netSkinsCount: number;
+    }[] = [];
+
+    for (const team of teams) {
+      if (usesPairing(team)) {
+        for (const pair of twoManStandings.filter(t => t.groupId === team.id)) {
+          rows.push({
+            id: pair.teamKey,
+            name: pair.name,
+            total: pair[sortKey],
+            holesPlayed: pair.holesPlayed,
+            grossSkinsCount: pair.playerIds.reduce((sum, id) => sum + (grossSkinsByPlayer[id] ?? 0), 0),
+            netSkinsCount: pair.playerIds.reduce((sum, id) => sum + (netSkinsByPlayer[id] ?? 0), 0),
+          });
+        }
+      } else {
         const members = individualByGross.filter(p => team.playerIds.includes(p.playerId));
-        const total = members.reduce((sum, m) => sum + m[sortKey], 0);
-        const holesPlayed = Math.min(...members.map(m => m.holesPlayed));
-        const grossSkinsCount = team.playerIds.reduce((sum, id) => sum + (grossSkinsByPlayer[id] ?? 0), 0);
-        const netSkinsCount = team.playerIds.reduce((sum, id) => sum + (netSkinsByPlayer[id] ?? 0), 0);
-        return { ...team, total, holesPlayed, grossSkinsCount, netSkinsCount };
-      })
-      .sort((a, b) => a.total - b.total);
-  }, [teams, individualByGross, scoreMode, grossSkinsByPlayer, netSkinsByPlayer]);
+        rows.push({
+          id: team.id,
+          name: team.name,
+          total: members.reduce((sum, m) => sum + m[sortKey], 0),
+          holesPlayed: members.length ? Math.min(...members.map(m => m.holesPlayed)) : 0,
+          grossSkinsCount: team.playerIds.reduce((sum, id) => sum + (grossSkinsByPlayer[id] ?? 0), 0),
+          netSkinsCount: team.playerIds.reduce((sum, id) => sum + (netSkinsByPlayer[id] ?? 0), 0),
+        });
+      }
+    }
+
+    return rows.sort((a, b) => a.total - b.total);
+  }, [teams, twoManStandings, individualByGross, scoreMode, grossSkinsByPlayer, netSkinsByPlayer]);
 
   const formatScore = (n: number) => (n === 0 ? "E" : n > 0 ? `+${n}` : `${n}`);
   const scoreColor = (n: number) => (n < 0 ? "text-turf" : "text-chalk");

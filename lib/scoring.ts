@@ -5,7 +5,19 @@
 // in here, so this is easy to unit test in isolation.
 // ─────────────────────────────────────────────────────────────
 
-import type { HoleScore, Hole, Player } from "./types";
+import type { GolfFormat, HoleScore, Hole, Player } from "./types";
+
+// Shared with components/setup/FoursomesStep.tsx, which is the only
+// place these get picked — kept here (rather than duplicated) so
+// setup and scoring can never drift on what "uses pairing" means.
+// Best Ball and Scramble/Alt Shot always play as 2-man teams within a
+// foursome; Stroke Play only does if strokePlayTeams was explicitly
+// set to "pairs".
+export const TEAM_FORMATS: GolfFormat[] = ["best_ball", "scramble", "alt_shot"];
+
+export function usesPairing(group: { format: GolfFormat; strokePlayTeams: "none" | "pairs" }): boolean {
+  return TEAM_FORMATS.includes(group.format) || (group.format === "stroke_play" && group.strokePlayTeams === "pairs");
+}
 
 // ── Shared utility: handicap strokes ───────────────────────────
 // Handles course handicaps above 18: every hole gets its normal
@@ -655,4 +667,125 @@ export function calculateIndividualLeaderboard(
       netRelativeToPar: netTotal - parForHoles,
     };
   }).sort((a, b) => a.relativeToPar - b.relativeToPar);
+}
+
+// ── TWO-MAN TEAMS (Best Ball, or Stroke Play opted into pairs) ──
+// Independent of Ryder Cup's separate, round-wide Team A/B concept —
+// this is per-foursome, from components/setup/FoursomesStep.tsx's
+// format + pairings. Groups that don't usesPairing() (plain Stroke
+// Play, or Scramble/Alt Shot — those need one shared score per team
+// per hole, which the Scorecard doesn't support entering yet) are
+// skipped entirely; the caller keeps treating them as one
+// whole-foursome unit.
+export type TwoManTeamGroupInput = {
+  id: string;
+  format: GolfFormat;
+  strokePlayTeams: "none" | "pairs";
+  playerIds: string[];
+  pairings: Record<string, "1" | "2">;
+};
+
+export type TwoManTeamStanding = {
+  teamKey: string; // `${groupId}:${pairing}`
+  groupId: string;
+  pairing: "1" | "2";
+  playerIds: string[];
+  name: string;
+  relativeToPar: number;
+  netRelativeToPar: number;
+  holesPlayed: number;
+  // Per-hole computed score, keyed by hole number — only present for
+  // holes where a value could actually be computed (Best Ball needs
+  // both partners posted; Stroke Play sums whichever have). Used by
+  // the Scorecard's Teams toggle.
+  grossByHole: Record<number, number>;
+  netByHole: Record<number, number>;
+};
+
+export function calculateTwoManTeamStandings(
+  scores: HoleScore[],
+  players: Player[],
+  holes: Hole[],
+  groups: TwoManTeamGroupInput[],
+  courseHandicaps: Record<string, number>
+): TwoManTeamStanding[] {
+  const standings: TwoManTeamStanding[] = [];
+
+  for (const group of groups) {
+    if (!usesPairing(group)) continue;
+    const isBestBall = group.format === "best_ball";
+
+    for (const pairing of ["1", "2"] as const) {
+      const pairPlayerIds = group.playerIds.filter(id => group.pairings[id] === pairing);
+      if (pairPlayerIds.length === 0) continue;
+
+      const name =
+        pairPlayerIds
+          .map(id => players.find(p => p.id === id)?.name)
+          .filter((n): n is string => !!n)
+          .join(" & ") || "Team";
+
+      let grossTotal = 0;
+      let netTotal = 0;
+      let parForHoles = 0;
+      let holesPlayed = 0;
+      const grossByHole: Record<number, number> = {};
+      const netByHole: Record<number, number> = {};
+
+      for (const hole of holes) {
+        const entries = pairPlayerIds.map(id => {
+          const s = scores.find(sc => sc.playerId === id && sc.holeNumber === hole.number);
+          if (!s) return null;
+          return { gross: s.strokes, net: s.strokes - strokesReceived(hole, courseHandicaps[id] ?? 0) };
+        });
+
+        if (isBestBall) {
+          // Only count a hole once every partner in the pair has
+          // posted — same completeness gating Skins/Ryder Cup use, so
+          // the running total never implies a hole is decided before
+          // both scores are actually in.
+          if (entries.some(e => e === null)) continue;
+          const vals = entries as { gross: number; net: number }[];
+          const gross = Math.min(...vals.map(v => v.gross));
+          const net = Math.min(...vals.map(v => v.net));
+          grossTotal += gross;
+          netTotal += net;
+          parForHoles += hole.par;
+          holesPlayed += 1;
+          grossByHole[hole.number] = gross;
+          netByHole[hole.number] = net;
+        } else {
+          // Stroke Play + pairs: sum whichever partners have posted —
+          // same math as summing the pair's individual relativeToPar
+          // values (calculateIndividualLeaderboard), just computed
+          // per hole so the Scorecard can show it too.
+          const posted = entries.filter((e): e is { gross: number; net: number } => e !== null);
+          if (posted.length === 0) continue;
+          const gross = posted.reduce((sum, e) => sum + e.gross, 0);
+          const net = posted.reduce((sum, e) => sum + e.net, 0);
+          grossTotal += gross;
+          netTotal += net;
+          parForHoles += hole.par * posted.length;
+          holesPlayed += 1;
+          grossByHole[hole.number] = gross;
+          netByHole[hole.number] = net;
+        }
+      }
+
+      standings.push({
+        teamKey: `${group.id}:${pairing}`,
+        groupId: group.id,
+        pairing,
+        playerIds: pairPlayerIds,
+        name,
+        relativeToPar: grossTotal - parForHoles,
+        netRelativeToPar: netTotal - parForHoles,
+        holesPlayed,
+        grossByHole,
+        netByHole,
+      });
+    }
+  }
+
+  return standings.sort((a, b) => a.relativeToPar - b.relativeToPar);
 }

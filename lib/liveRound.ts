@@ -15,10 +15,22 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "./supabase";
-import type { Hole, HoleScore, Player } from "./types";
+import type { GolfFormat, Hole, HoleScore, Player } from "./types";
 import { DEMO_ROUND_ID } from "./rounds";
 
-export type TeamDef = { id: string; name: string; playerIds: string[] };
+export type TeamDef = {
+  id: string;
+  name: string;
+  playerIds: string[];
+  // Format + per-player pairing picked in
+  // components/setup/FoursomesStep.tsx (see supabase/add-group-teams.sql)
+  // — drives the 2-man team splitting in lib/scoring.ts
+  // calculateTwoManTeamStandings, consumed by both Leaderboard.tsx
+  // and Scorecard.tsx.
+  format: GolfFormat;
+  strokePlayTeams: "none" | "pairs";
+  pairings: Record<string, "1" | "2">;
+};
 
 type StaticRoundData = {
   players: Player[];
@@ -30,7 +42,9 @@ type StaticRoundData = {
 type GroupRow = {
   id: string;
   name: string | null;
-  group_players: { player_id: string }[] | null;
+  format: GolfFormat;
+  stroke_play_teams: "none" | "pairs";
+  group_players: { player_id: string; pairing: "1" | "2" | null }[] | null;
 };
 
 async function fetchStaticRoundData(roundId: string): Promise<StaticRoundData> {
@@ -51,7 +65,7 @@ async function fetchStaticRoundData(roundId: string): Promise<StaticRoundData> {
       .order("number"),
     supabase
       .from("groups")
-      .select("id, name, group_players(player_id)")
+      .select("id, name, format, stroke_play_teams, group_players(player_id, pairing)")
       .eq("round_id", roundId),
     supabase.from("players").select("id, name, handicap_index").eq("trip_id", round.trip_id),
   ]);
@@ -66,11 +80,21 @@ async function fetchStaticRoundData(roundId: string): Promise<StaticRoundData> {
     strokeIndex: h.stroke_index,
   }));
 
-  const teams: TeamDef[] = ((groupsRes.data ?? []) as GroupRow[]).map(g => ({
-    id: g.id,
-    name: g.name ?? "Group",
-    playerIds: (g.group_players ?? []).map(gp => gp.player_id),
-  }));
+  const teams: TeamDef[] = ((groupsRes.data ?? []) as GroupRow[]).map(g => {
+    const groupPlayers = g.group_players ?? [];
+    const pairings: Record<string, "1" | "2"> = {};
+    for (const gp of groupPlayers) {
+      if (gp.pairing) pairings[gp.player_id] = gp.pairing;
+    }
+    return {
+      id: g.id,
+      name: g.name ?? "Group",
+      playerIds: groupPlayers.map(gp => gp.player_id),
+      format: g.format,
+      strokePlayTeams: g.stroke_play_teams,
+      pairings,
+    };
+  });
 
   // Players are stored trip-wide (the standing roster spans every
   // round), but this round is only played by whoever's actually in

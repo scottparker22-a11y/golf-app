@@ -103,6 +103,9 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
         name: groupDisplayName(players, g, i),
         localPlayerIds: g.playerIds,
         scorekeeperLocalPlayerId: scorekeepers[g.id],
+        format: g.format,
+        strokePlayTeams: g.strokePlayTeams,
+        pairings: g.pairings,
       }));
       const newRoundId = await createRoundWithRoster(
         DEMO_TRIP_ID,

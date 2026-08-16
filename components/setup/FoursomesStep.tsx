@@ -1,11 +1,7 @@
 "use client";
 
 import type { GolfFormat, Player } from "@/lib/types";
-
-// Formats where the 4 players in a group actually play as 2 teams of 2.
-// Stroke play is every player for themselves by default, but can opt
-// into "Teams of 2" the same way (see strokePlayTeams below).
-const TEAM_FORMATS: GolfFormat[] = ["best_ball", "scramble", "alt_shot"];
+import { usesPairing } from "@/lib/scoring";
 
 export type Group = {
   id: string;
@@ -28,10 +24,6 @@ const FORMATS: { value: GolfFormat; label: string }[] = [
   { value: "scramble", label: "Scramble" },
   { value: "alt_shot", label: "Alt Shot" },
 ];
-
-function usesPairing(group: Group): boolean {
-  return TEAM_FORMATS.includes(group.format) || (group.format === "stroke_play" && group.strokePlayTeams === "pairs");
-}
 
 function defaultPairings(ids: string[]): Record<string, "1" | "2"> {
   const pairings: Record<string, "1" | "2"> = {};

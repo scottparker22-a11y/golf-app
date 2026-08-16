@@ -26,7 +26,7 @@
 // ─────────────────────────────────────────────────────────────
 
 import { supabase } from "./supabase";
-import type { Player } from "./types";
+import type { GolfFormat, Player } from "./types";
 import type { SkinsGameConfig, RyderCupGameConfig } from "./scoring";
 
 /** Parses a /api/admin/* JSON error response into a thrown Error. */
@@ -303,6 +303,18 @@ export type RosterGroup = {
   // components/setup/ScorekeeperStep.tsx), if one was picked —
   // resolved server-side to a DB id and saved as groups.scorer_player_id.
   scorekeeperLocalPlayerId?: string;
+  // Format + pairings picked in components/setup/FoursomesStep.tsx —
+  // saved as groups.format/stroke_play_teams and each group_players
+  // row's `pairing`. Drives the 2-man team scoring in
+  // lib/scoring.ts calculateTwoManTeamStandings (Best Ball, and
+  // Stroke Play when strokePlayTeams === "pairs"); Scramble/Alt Shot
+  // formats are stored but not yet computed anywhere (see
+  // FoursomesStep.tsx's TEAM_FORMATS comment).
+  format: GolfFormat;
+  strokePlayTeams: "none" | "pairs";
+  // Wizard-local player id -> "1" | "2", mirroring FoursomesStep's
+  // Group.pairings.
+  pairings: Record<string, "1" | "2">;
 };
 
 /**

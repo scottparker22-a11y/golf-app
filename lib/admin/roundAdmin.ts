@@ -87,7 +87,15 @@ export async function runCreateRoundWithRoster(
   const effectiveGroups: RosterGroup[] =
     groups.length > 0
       ? groups
-      : [{ name: "All players", localPlayerIds: namedPlayers.map(p => p.localId) }];
+      : [
+          {
+            name: "All players",
+            localPlayerIds: namedPlayers.map(p => p.localId),
+            format: "stroke_play",
+            strokePlayTeams: "none",
+            pairings: {},
+          },
+        ];
 
   for (const g of effectiveGroups) {
     const dbPlayerIds = g.localPlayerIds.map(lid => idMap.get(lid)).filter((id): id is string => !!id);
@@ -100,14 +108,27 @@ export async function runCreateRoundWithRoster(
 
     const { data: newGroup, error: groupErr } = await admin
       .from("groups")
-      .insert({ round_id: newRound.id, name: g.name, scorer_player_id: scorerPlayerId })
+      .insert({
+        round_id: newRound.id,
+        name: g.name,
+        scorer_player_id: scorerPlayerId,
+        format: g.format,
+        stroke_play_teams: g.strokePlayTeams,
+      })
       .select("id")
       .single();
     if (groupErr || !newGroup) throw new Error(groupErr?.message ?? "Couldn't set up a foursome");
 
-    const { error: gpErr } = await admin
-      .from("group_players")
-      .insert(dbPlayerIds.map(playerId => ({ group_id: newGroup.id, player_id: playerId })));
+    // Pairings were picked by wizard-local player id (see
+    // FoursomesStep.tsx Group.pairings) — resolve each through the
+    // same idMap used everywhere else in this function.
+    const groupPlayerRows: { group_id: string; player_id: string; pairing: "1" | "2" | null }[] = [];
+    for (const lid of g.localPlayerIds) {
+      const playerId = idMap.get(lid);
+      if (!playerId) continue;
+      groupPlayerRows.push({ group_id: newGroup.id, player_id: playerId, pairing: g.pairings[lid] ?? null });
+    }
+    const { error: gpErr } = await admin.from("group_players").insert(groupPlayerRows);
     if (gpErr) throw new Error(`Couldn't add players to a foursome: ${gpErr.message}`);
   }
 
