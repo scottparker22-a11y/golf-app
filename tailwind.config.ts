@@ -25,6 +25,7 @@ const config: Config = {
         display: ["var(--font-big-shoulders)", "sans-serif"],
         body: ["var(--font-manrope)", "sans-serif"],
         mono: ["var(--font-ibm-plex-mono)", "monospace"],
+        script: ["var(--font-caveat)", "cursive"],
       },
     },
   },

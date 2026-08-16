@@ -14,8 +14,8 @@ export default function AdminSetupLink({ tripId }: { tripId: string }) {
   const { isAdmin } = useIsAdmin();
 
   return (
-    <Link href={isAdmin ? `/trip/${tripId}/setup` : `/trip/${tripId}/admin`} className="text-chalk-dim text-xs underline">
-      Trip setup <span className="text-chalk-dim/70">(Admin only)</span>
+    <Link href={isAdmin ? `/trip/${tripId}/setup` : `/trip/${tripId}/admin`} className="text-turf/80 text-sm underline underline-offset-4">
+      Trip setup (Admin only).
     </Link>
   );
 }
