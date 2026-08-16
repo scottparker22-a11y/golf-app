@@ -19,18 +19,19 @@ export default function Home() {
   return (
     <main className="min-h-screen max-w-[460px] mx-auto flex flex-col">
       <PageNav />
-      <div className="flex-1 flex flex-col items-center justify-center gap-5 px-6 pb-8 text-center">
-        {/* Cropped from the source mockup — badge + "Buddy Trip Golf"
-            tagline only. The mockup's Skins/Nassau/Ryder Cup row and
-            description below it are left out; those get replaced with
-            real nav below instead. */}
-        <img
-          src="/parker-logo-badge.png"
-          alt="PAR-ker Score Keeper — Buddy Trip Golf"
-          className="w-full max-w-[280px] h-auto block rounded-2xl"
-        />
-
-        <p className="text-chalk-dim text-sm max-w-xs -mt-2">
+      {/* Cropped from the source mockup — badge + "Buddy Trip Golf"
+          tagline only, border trimmed off the source art. Full-width,
+          edge-to-edge, no frame — reads as the page's own header
+          rather than a picture sitting on the page. The mockup's
+          Skins/Nassau/Ryder Cup row and description below it are left
+          out; those get replaced with real nav below instead. */}
+      <img
+        src="/parker-logo-badge.png"
+        alt="PAR-ker Score Keeper — Buddy Trip Golf"
+        className="w-full h-auto block"
+      />
+      <div className="flex-1 flex flex-col items-center justify-center gap-5 px-6 pb-8 pt-5 text-center">
+        <p className="text-chalk-dim text-sm max-w-xs">
           Live golf scoring for your buddy trip — leaderboard, scorecard, and round history,
           updating in real time from whoever&apos;s keeping score.
         </p>
