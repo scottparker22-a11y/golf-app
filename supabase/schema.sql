@@ -55,7 +55,13 @@ create table rounds (
   -- share the same calendar date (e.g. testing, or a multi-round day).
   -- created_at is the real tiebreaker for "which round is actually
   -- most recent" (see lib/rounds.ts fetchRounds).
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  -- Opt-in per round (see components/setup/RoundsStep.tsx) — when on,
+  -- the Scorecard collects fairway_hit/gir/putts on hole_scores too
+  -- (see below) and an end-of-round Stats tab summarizes them (see
+  -- lib/scoring.ts calculateRoundStats). Off leaves hole_scores'
+  -- stat columns untouched (null), so existing rounds are unaffected.
+  track_stats boolean not null default false
 );
 
 -- Players — kept trip-scoped rather than global users for v1 simplicity.
@@ -93,6 +99,13 @@ create table hole_scores (
   strokes int not null check (strokes > 0),
   entered_by uuid references auth.users(id),
   entered_at timestamptz default now(),
+  -- Only ever set when the round has track_stats on (see rounds
+  -- above) — otherwise left null. fairway_hit stays null on par-3
+  -- holes (fairways aren't tracked there); see lib/scoring.ts
+  -- calculateRoundStats for how these roll up into the Stats tab.
+  fairway_hit boolean,
+  gir boolean,
+  putts int,
   unique (group_id, player_id, hole_number)
 );
 

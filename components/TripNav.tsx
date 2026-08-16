@@ -3,11 +3,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { fetchRyderCupGame } from "@/lib/rounds";
+import { fetchRoundStatus, fetchRyderCupGame } from "@/lib/rounds";
 
 export default function TripNav({ tripId, roundId }: { tripId: string; roundId: string }) {
   const pathname = usePathname();
   const [hasRyderCup, setHasRyderCup] = useState(false);
+  const [showStats, setShowStats] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -22,6 +23,16 @@ export default function TripNav({ tripId, roundId }: { tripId: string; roundId: 
       .catch(() => {
         // Non-fatal — just leave the tab hidden.
       });
+    // Stats is an end-of-round summary, not a live board — only shows
+    // once the round actually has stats tracking on AND is completed
+    // (see components/setup/RoundsStep.tsx, components/StatsBoard.tsx).
+    fetchRoundStatus(roundId)
+      .then(({ status, trackStats }) => {
+        if (!cancelled) setShowStats(trackStats && status === "completed");
+      })
+      .catch(() => {
+        // Non-fatal — just leave the tab hidden.
+      });
     return () => {
       cancelled = true;
     };
@@ -32,6 +43,7 @@ export default function TripNav({ tripId, roundId }: { tripId: string; roundId: 
     ...(hasRyderCup ? [{ href: `/trip/${tripId}/round/${roundId}/ryder-cup`, label: "Ryder Cup" }] : []),
     { href: `/trip/${tripId}/round/${roundId}/scorecard`, label: "Scorecard" },
     { href: `/trip/${tripId}/round/${roundId}/skins`, label: "Skins" },
+    ...(showStats ? [{ href: `/trip/${tripId}/round/${roundId}/stats`, label: "Stats" }] : []),
     { href: `/trip/${tripId}/rounds`, label: "History" },
   ];
 

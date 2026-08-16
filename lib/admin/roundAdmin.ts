@@ -33,7 +33,8 @@ export async function runCreateRoundWithRoster(
   players: RosterPlayer[],
   groups: RosterGroup[],
   skinsConfig?: SkinsGameConfig | null,
-  ryderCupConfig?: RyderCupGameConfig | null
+  ryderCupConfig?: RyderCupGameConfig | null,
+  trackStats?: boolean
 ): Promise<string> {
   const namedPlayers = players.filter(p => p.name.trim().length > 0);
   if (namedPlayers.length === 0) {
@@ -79,6 +80,7 @@ export async function runCreateRoundWithRoster(
       tee_name: DEMO_TEE_NAME,
       date: new Date().toISOString().slice(0, 10),
       status: "in_progress",
+      track_stats: !!trackStats,
     })
     .select("id")
     .single();

@@ -37,6 +37,7 @@ type StaticRoundData = {
   holes: Hole[];
   teams: TeamDef[];
   groupIds: string[];
+  trackStats: boolean;
 };
 
 type GroupRow = {
@@ -50,7 +51,7 @@ type GroupRow = {
 async function fetchStaticRoundData(roundId: string): Promise<StaticRoundData> {
   const { data: round, error: roundErr } = await supabase
     .from("rounds")
-    .select("id, course_id, tee_name, trip_id")
+    .select("id, course_id, tee_name, trip_id, track_stats")
     .eq("id", roundId)
     .single();
   if (roundErr) throw new Error(`Couldn't load round: ${roundErr.message}`);
@@ -105,14 +106,14 @@ async function fetchStaticRoundData(roundId: string): Promise<StaticRoundData> {
     .filter(p => roundPlayerIds.has(p.id))
     .map(p => ({ id: p.id, name: p.name, handicapIndex: p.handicap_index ?? 0 }));
 
-  return { players, holes, teams, groupIds: teams.map(t => t.id) };
+  return { players, holes, teams, groupIds: teams.map(t => t.id), trackStats: round.track_stats ?? false };
 }
 
 async function fetchHoleScores(groupIds: string[]): Promise<HoleScore[]> {
   if (groupIds.length === 0) return [];
   const { data, error } = await supabase
     .from("hole_scores")
-    .select("group_id, player_id, hole_number, strokes")
+    .select("group_id, player_id, hole_number, strokes, fairway_hit, gir, putts")
     .in("group_id", groupIds);
   if (error) throw new Error(`Couldn't load scores: ${error.message}`);
   return (data ?? []).map(r => ({
@@ -120,6 +121,9 @@ async function fetchHoleScores(groupIds: string[]): Promise<HoleScore[]> {
     playerId: r.player_id,
     holeNumber: r.hole_number,
     strokes: r.strokes,
+    fairwayHit: r.fairway_hit,
+    gir: r.gir,
+    putts: r.putts,
   }));
 }
 
@@ -136,6 +140,7 @@ export function useLiveRound(roundId: string = DEMO_ROUND_ID) {
   const [teams, setTeams] = useState<TeamDef[]>([]);
   const [holeScores, setHoleScores] = useState<HoleScore[]>([]);
   const [groupIds, setGroupIds] = useState<string[]>([]);
+  const [trackStats, setTrackStats] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -149,6 +154,7 @@ export function useLiveRound(roundId: string = DEMO_ROUND_ID) {
         setHoles(staticData.holes);
         setTeams(staticData.teams);
         setGroupIds(staticData.groupIds);
+        setTrackStats(staticData.trackStats);
 
         const scores = await fetchHoleScores(staticData.groupIds);
         if (cancelled) return;
@@ -168,6 +174,9 @@ export function useLiveRound(roundId: string = DEMO_ROUND_ID) {
                 player_id?: string | null;
                 hole_number?: number;
                 strokes?: number;
+                fairway_hit?: boolean | null;
+                gir?: boolean | null;
+                putts?: number | null;
               } | null;
               if (!row?.group_id || !staticData.groupIds.includes(row.group_id)) return;
 
@@ -182,6 +191,9 @@ export function useLiveRound(roundId: string = DEMO_ROUND_ID) {
                   playerId: row.player_id ?? null,
                   holeNumber: row.hole_number!,
                   strokes: row.strokes!,
+                  fairwayHit: row.fairway_hit,
+                  gir: row.gir,
+                  putts: row.putts,
                 };
                 const idx = prev.findIndex(
                   s => s.playerId === next.playerId && s.holeNumber === next.holeNumber
@@ -208,10 +220,16 @@ export function useLiveRound(roundId: string = DEMO_ROUND_ID) {
   const setStroke = useCallback(
     (groupId: string, playerId: string, holeNumber: number, strokes: number) => {
       // Optimistic local update — the realtime echo reconciles it,
-      // and other devices get it the moment the write lands.
+      // and other devices get it the moment the write lands. Merges
+      // onto any existing row instead of replacing it outright, so
+      // re-editing strokes on a hole that already has fairway/GIR/
+      // putts recorded doesn't flash them away locally until the
+      // echo arrives — the actual upsert below only ever touches the
+      // strokes column, so the DB row was never at risk either way.
       setHoleScores(prev => {
         const idx = prev.findIndex(s => s.playerId === playerId && s.holeNumber === holeNumber);
-        const next: HoleScore = { groupId, playerId, holeNumber, strokes };
+        const next: HoleScore =
+          idx === -1 ? { groupId, playerId, holeNumber, strokes } : { ...prev[idx], groupId, strokes };
         return idx === -1 ? [...prev, next] : prev.map((s, i) => (i === idx ? next : s));
       });
       supabase
@@ -222,6 +240,28 @@ export function useLiveRound(roundId: string = DEMO_ROUND_ID) {
         )
         .then(({ error }) => {
           if (error) console.error("Failed to save score:", error.message);
+        });
+    },
+    []
+  );
+
+  // Fairway/GIR/putts — only ever called on a hole that already has a
+  // stroke entered (strokes is not-null in the DB, and the Scorecard
+  // only shows this entry point once a stroke exists), so this is a
+  // plain UPDATE, not an upsert like setStroke.
+  const setHoleStat = useCallback(
+    (playerId: string, holeNumber: number, field: "fairwayHit" | "gir" | "putts", value: boolean | number | null) => {
+      const column = field === "fairwayHit" ? "fairway_hit" : field;
+      setHoleScores(prev =>
+        prev.map(s => (s.playerId === playerId && s.holeNumber === holeNumber ? { ...s, [field]: value } : s))
+      );
+      supabase
+        .from("hole_scores")
+        .update({ [column]: value })
+        .eq("player_id", playerId)
+        .eq("hole_number", holeNumber)
+        .then(({ error }) => {
+          if (error) console.error("Failed to save stat:", error.message);
         });
     },
     []
@@ -239,5 +279,17 @@ export function useLiveRound(roundId: string = DEMO_ROUND_ID) {
       });
   }, []);
 
-  return { loading, error, players, holes, teams, holeScores, groupIds, setStroke, clearStroke };
+  return {
+    loading,
+    error,
+    players,
+    holes,
+    teams,
+    holeScores,
+    groupIds,
+    trackStats,
+    setStroke,
+    setHoleStat,
+    clearStroke,
+  };
 }

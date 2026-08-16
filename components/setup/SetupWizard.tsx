@@ -17,6 +17,7 @@ import PlayersStep from "./PlayersStep";
 import TeamsStep, { DEFAULT_RYDER_CUP_CONFIG, type RyderCupWizardConfig } from "./TeamsStep";
 import FoursomesStep, { type Group } from "./FoursomesStep";
 import SkinsStep from "./SkinsStep";
+import RoundsStep from "./RoundsStep";
 import ScorekeeperStep from "./ScorekeeperStep";
 import PageNav from "@/components/PageNav";
 
@@ -40,7 +41,8 @@ const TABS = [
   { id: "teams", label: "3 · Ryder Cup" },
   { id: "foursomes", label: "4 · Foursomes" },
   { id: "skins", label: "5 · Skins" },
-  { id: "scorer", label: "6 · Scorekeeper" },
+  { id: "stats", label: "6 · Stats" },
+  { id: "scorer", label: "7 · Scorekeeper" },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -58,6 +60,7 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
   const [groups, setGroups] = useState<Group[]>([]);
   const [skinsConfig, setSkinsConfig] = useState<SkinsGameConfig>(DEFAULT_SKINS_CONFIG);
   const [ryderCup, setRyderCup] = useState<RyderCupWizardConfig>(DEFAULT_RYDER_CUP_CONFIG);
+  const [trackStats, setTrackStats] = useState(false);
   const [scorekeepers, setScorekeepers] = useState<Record<string, string>>({});
 
   const [roster, setRoster] = useState<Player[]>([]);
@@ -113,7 +116,8 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
         rosterPlayers,
         rosterGroups,
         skinsConfig,
-        ryderCup.enabled ? ryderCup : null
+        ryderCup.enabled ? ryderCup : null,
+        trackStats
       );
       router.push(`/trip/${tripId}/round/${newRoundId}/scorecard`);
     } catch (e) {
@@ -174,6 +178,7 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
       {tab === "skins" && (
         <SkinsStep config={skinsConfig} setConfig={setSkinsConfig} playerCount={players.length} />
       )}
+      {tab === "stats" && <RoundsStep trackStats={trackStats} setTrackStats={setTrackStats} />}
       {tab === "scorer" && (
         <ScorekeeperStep
           players={players}

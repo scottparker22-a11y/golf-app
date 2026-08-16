@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
   const denied = requireAdmin(request, DEMO_TRIP_ID);
   if (denied) return denied;
 
-  const { tripId, courseId, players, groups, skinsConfig, ryderCupConfig } = await request.json();
+  const { tripId, courseId, players, groups, skinsConfig, ryderCupConfig, trackStats } = await request.json();
   if (!courseId) {
     return NextResponse.json({ error: "Pick a course on the first step." }, { status: 400 });
   }
@@ -27,7 +27,8 @@ export async function POST(request: NextRequest) {
       players ?? [],
       groups ?? [],
       skinsConfig,
-      ryderCupConfig
+      ryderCupConfig,
+      trackStats
     );
     return NextResponse.json({ roundId });
   } catch (e) {

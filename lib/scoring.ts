@@ -669,6 +669,66 @@ export function calculateIndividualLeaderboard(
   }).sort((a, b) => a.relativeToPar - b.relativeToPar);
 }
 
+// ── ROUND STATS (Fairways Hit, GIR, Putts) — optional per round ──
+// Set via rounds.track_stats (see components/setup/RoundsStep.tsx)
+// and entered per hole on the Scorecard when it's on; this just rolls
+// up whatever's been recorded on hole_scores — no separate table.
+// Fairways/GIR percentages use fixed denominators (eligible-hole
+// count / total holes in the round), not "holes recorded so far" —
+// a partial round still shows real progress against the full round,
+// same as a "8 of 14 fairways" read partway through. Putts/hole is a
+// true average over holes that actually have a putts value; treating
+// unrecorded holes as 0 putts would skew it.
+export type PlayerRoundStats = {
+  playerId: string;
+  name: string;
+  fairwaysHit: number;
+  fairwaysEligible: number; // non-par-3 holes in the round
+  fairwayPct: number; // 0-100
+  girHit: number;
+  girEligible: number; // holes.length — "X of 18" per a standard round
+  girPct: number;
+  totalPutts: number;
+  puttsHolesRecorded: number;
+  puttsPerHole: number;
+};
+
+export function calculateRoundStats(
+  scores: HoleScore[],
+  players: Player[],
+  holes: Hole[]
+): PlayerRoundStats[] {
+  const fairwaysEligible = holes.filter(h => h.par !== 3).length;
+  const girEligible = holes.length;
+
+  return players.map(player => {
+    const individualScores = scores.filter(s => s.playerId === player.id && !s.teamId);
+
+    const fairwaysHit = individualScores.filter(s => s.fairwayHit === true).length;
+    const girHit = individualScores.filter(s => s.gir === true).length;
+
+    const puttsEntries = individualScores
+      .map(s => s.putts)
+      .filter((p): p is number => p !== null && p !== undefined);
+    const totalPutts = puttsEntries.reduce((sum, p) => sum + p, 0);
+    const puttsHolesRecorded = puttsEntries.length;
+
+    return {
+      playerId: player.id,
+      name: player.name,
+      fairwaysHit,
+      fairwaysEligible,
+      fairwayPct: fairwaysEligible > 0 ? Math.round((fairwaysHit / fairwaysEligible) * 100) : 0,
+      girHit,
+      girEligible,
+      girPct: girEligible > 0 ? Math.round((girHit / girEligible) * 100) : 0,
+      totalPutts,
+      puttsHolesRecorded,
+      puttsPerHole: puttsHolesRecorded > 0 ? totalPutts / puttsHolesRecorded : 0,
+    };
+  });
+}
+
 // ── TWO-MAN TEAMS (Best Ball, or Stroke Play opted into pairs) ──
 // Independent of Ryder Cup's separate, round-wide Team A/B concept —
 // this is per-foursome, from components/setup/FoursomesStep.tsx's

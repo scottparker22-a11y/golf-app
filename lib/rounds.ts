@@ -165,6 +165,24 @@ export async function fetchRounds(tripId: string): Promise<RoundSummary[]> {
 }
 
 /**
+ * Just status + track_stats for one round — used by TripNav to decide
+ * whether the Stats tab should render at all (only once track_stats
+ * is on for the round AND it's actually completed — see
+ * components/TripNav.tsx and lib/scoring.ts calculateRoundStats).
+ */
+export async function fetchRoundStatus(
+  roundId: string
+): Promise<{ status: RoundStatus; trackStats: boolean }> {
+  const { data, error } = await supabase
+    .from("rounds")
+    .select("status, track_stats")
+    .eq("id", roundId)
+    .single();
+  if (error) throw new Error(`Couldn't load the round: ${error.message}`);
+  return { status: data.status as RoundStatus, trackStats: data.track_stats ?? false };
+}
+
+/**
  * An admin's manual pin (see the bubble selector in Round History /
  * components/RoundsList.tsx) for which round the un-scoped
  * /leaderboard and /scorecard links should land on — takes priority
@@ -332,12 +350,13 @@ export async function createRoundWithRoster(
   players: RosterPlayer[],
   groups: RosterGroup[],
   skinsConfig?: SkinsGameConfig | null,
-  ryderCupConfig?: RyderCupGameConfig | null
+  ryderCupConfig?: RyderCupGameConfig | null,
+  trackStats?: boolean
 ): Promise<string> {
   const res = await fetch("/api/admin/round", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ tripId, courseId, players, groups, skinsConfig, ryderCupConfig }),
+    body: JSON.stringify({ tripId, courseId, players, groups, skinsConfig, ryderCupConfig, trackStats }),
   });
   await throwOnError(res, "Couldn't finish setup");
   const { roundId } = await res.json();
