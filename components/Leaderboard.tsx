@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   approxCourseHandicap,
   calculateIndividualLeaderboard,
@@ -10,7 +11,12 @@ import {
   usesPairing,
 } from "@/lib/scoring";
 import { useLiveRound } from "@/lib/liveRound";
-import { fetchRyderCupGame, fetchRyderCupTeamScoreForTrip, type RyderCupTripScore } from "@/lib/rounds";
+import {
+  fetchActiveRyderCupTournament,
+  fetchRyderCupGame,
+  fetchRyderCupTeamScoreForTrip,
+  type RyderCupTripScore,
+} from "@/lib/rounds";
 import RyderCupScoreBanner from "./RyderCupScoreBanner";
 import RyderCupBoard from "./RyderCupBoard";
 
@@ -59,6 +65,27 @@ export default function Leaderboard({ roundId, tripId }: { roundId: string; trip
       cancelled = true;
     };
   }, [roundId]);
+
+  // Whether the trip has an active Ryder Cup at all — independent of
+  // whether THIS round actually built any matches yet. A round set up
+  // as Ryder Cup with zero matches never gets a games row (see
+  // lib/admin/roundAdmin.ts createRyderCupGame), so it's easy to end
+  // up "playing Ryder Cup" with nothing to show for it; this powers
+  // the prompt below to fix that without restarting the round.
+  const [activeRyderCup, setActiveRyderCup] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    fetchActiveRyderCupTournament(tripId)
+      .then(cup => {
+        if (!cancelled) setActiveRyderCup(!!cup);
+      })
+      .catch(() => {
+        // Non-fatal — the prompt just won't show.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tripId]);
 
   const courseHandicaps = useMemo(() => {
     const map: Record<string, number> = {};
@@ -164,6 +191,18 @@ export default function Leaderboard({ roundId, tripId }: { roundId: string; trip
             teamBName={ryderCupTripScore.teamBName}
             teamScore={ryderCupTripScore.teamScore}
           />
+        </div>
+      )}
+
+      {activeRyderCup && !hasRyderCup && (
+        <div className="mx-5 mt-4 p-3 bg-sand/10 border border-sand/30 rounded-xl text-[12.5px] text-sand leading-relaxed flex items-center justify-between gap-3">
+          <span>This round hasn&apos;t set up its Ryder Cup matches yet.</span>
+          <Link
+            href={`/trip/${tripId}/round/${roundId}/ryder-cup-setup`}
+            className="font-bold underline flex-shrink-0 whitespace-nowrap"
+          >
+            Add matches →
+          </Link>
         </div>
       )}
 

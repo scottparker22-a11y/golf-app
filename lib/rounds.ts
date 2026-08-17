@@ -360,6 +360,32 @@ export async function updateRyderCupGame(gameId: string, config: RyderCupGameCon
   if (error) throw new Error(`Couldn't update the Ryder Cup game: ${error.message}`);
 }
 
+/**
+ * Creates a round's Ryder Cup game after the fact — for a round that
+ * was set up as Ryder Cup but never actually got any matches built
+ * (see components/RyderCupSetupPanel.tsx), so it never got a `games`
+ * row (createRyderCupGame during setup skips the insert entirely when
+ * matches is empty) and never showed up as a Leaderboard view.
+ * `tournamentId` links it to the trip's active Ryder Cup if there is
+ * one, same as during normal setup. Admin-only — insert into `games`
+ * always is. Fails if the round already has a Ryder Cup game; use
+ * updateRyderCupGame to edit that one instead.
+ */
+export async function createRyderCupGameForRound(
+  roundId: string,
+  config: RyderCupGameConfig,
+  tournamentId?: string | null
+): Promise<string> {
+  const res = await fetch(`/api/admin/round/${roundId}/ryder-cup`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ config, tournamentId }),
+  });
+  await throwOnError(res, "Couldn't create the Ryder Cup game");
+  const { gameId } = await res.json();
+  return gameId;
+}
+
 // Set when a roster entry is an existing trip player being reused —
 // present means "use this id, don't insert a new row."
 export type RosterPlayer = { localId: string; name: string; handicapIndex: number; existingId?: string };
