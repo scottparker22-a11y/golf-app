@@ -12,6 +12,7 @@ import {
   DEMO_TRIP_ID,
   fetchActiveRyderCupTournament,
   fetchActiveTournament,
+  fetchLastRoundPlayerIds,
   fetchTripRoster,
   type ActiveRyderCupTournament,
   type ActiveTournament,
@@ -91,6 +92,12 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
 
   const [roster, setRoster] = useState<Player[]>([]);
   const rosterIds = new Set(roster.map(r => r.id));
+  // Who played the trip's last round — powers the Players step's "Use
+  // last round's players" shortcut so a new round with the same group
+  // doesn't mean re-adding everyone one at a time (see
+  // components/setup/PlayersStep.tsx). Groups are re-picked fresh
+  // every round via FoursomesStep.tsx, not reused from here.
+  const [lastRoundPlayerIds, setLastRoundPlayerIds] = useState<string[]>([]);
 
   const [finishing, setFinishing] = useState(false);
   const [finishError, setFinishError] = useState<string | null>(null);
@@ -102,6 +109,11 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
       .then(setRoster)
       .catch(() => {
         // Non-fatal — Players step still works for typing names in.
+      });
+    fetchLastRoundPlayerIds(DEMO_TRIP_ID)
+      .then(setLastRoundPlayerIds)
+      .catch(() => {
+        // Non-fatal — the "use last round's players" shortcut just won't show.
       });
     // Auto-detect an already-running Tournament/Ryder Cup and default
     // this round to joining it (confirmed with the user over asking
@@ -272,6 +284,7 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
           setPlayers={setPlayers}
           roster={roster}
           onDeleteFromRoster={handleDeleteFromRoster}
+          lastRoundPlayerIds={lastRoundPlayerIds}
         />
       )}
       {tab === "teams" && (

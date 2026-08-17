@@ -8,6 +8,7 @@ export default function PlayersStep({
   setPlayers,
   roster,
   onDeleteFromRoster,
+  lastRoundPlayerIds,
 }: {
   players: Player[];
   setPlayers: (p: Player[]) => void;
@@ -15,6 +16,8 @@ export default function PlayersStep({
   roster: Player[];
   /** Permanently deletes a player from the trip roster (not just this round). */
   onDeleteFromRoster: (player: Player) => Promise<void>;
+  /** Who played the trip's last round — powers "Use last round's players" below. */
+  lastRoundPlayerIds: string[];
 }) {
   const [bulkNames, setBulkNames] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -23,6 +26,11 @@ export default function PlayersStep({
   const rosterIds = new Set(roster.map(r => r.id));
   const addedIds = new Set(players.map(p => p.id));
   const availableRoster = roster.filter(r => !addedIds.has(r.id));
+  // Last round's players who are (a) still on the roster and (b) not
+  // already added this round — what "Use last round's players" below
+  // would actually add. Same set of players every time; who ends up in
+  // which foursome is picked fresh each round on the Foursomes step.
+  const lastRoundRoster = roster.filter(r => lastRoundPlayerIds.includes(r.id) && !addedIds.has(r.id));
 
   const update = (id: string, patch: Partial<Player>) =>
     setPlayers(players.map(p => (p.id === id ? { ...p, ...patch } : p)));
@@ -30,6 +38,8 @@ export default function PlayersStep({
   const removePlayer = (id: string) => setPlayers(players.filter(p => p.id !== id));
 
   const addFromRoster = (p: Player) => setPlayers([...players, p]);
+
+  const addLastRoundPlayers = () => setPlayers([...players, ...lastRoundRoster]);
 
   const handleDeleteFromRoster = async (p: Player) => {
     setConfirmDeleteId(null);
@@ -63,6 +73,24 @@ export default function PlayersStep({
         Add everyone playing this round — name and handicap index. This list feeds every other
         step.
       </p>
+
+      {lastRoundRoster.length > 0 && (
+        <button
+          onClick={addLastRoundPlayers}
+          className="w-full flex items-center gap-3 p-3 rounded-xl border border-turf bg-turf/15 text-left mb-4"
+        >
+          <span className="text-turf font-bold text-lg flex-shrink-0">↺</span>
+          <span>
+            <div className="text-[13.5px] font-semibold">
+              Use last round&apos;s players ({lastRoundRoster.length})
+            </div>
+            <div className="text-[11px] text-chalk-dim">
+              Adds everyone from the last round in one go — pick different foursomes for them on
+              the next step.
+            </div>
+          </span>
+        </button>
+      )}
 
       {availableRoster.length > 0 && (
         <div className="mb-4">

@@ -108,6 +108,41 @@ export async function createCourse(name: string, location: string): Promise<stri
   return id;
 }
 
+/**
+ * Which players (by id) played the trip's most recently created round —
+ * lets the Setup Wizard offer "use last round's players" so a new round
+ * with the same group doesn't mean re-picking everyone from the roster
+ * one at a time (see components/setup/PlayersStep.tsx). Groups/lineup
+ * are deliberately not reused here — FoursomesStep.tsx's own
+ * auto-fill/move-between-groups already covers "same players, new
+ * groups". Empty if the trip has no rounds yet.
+ */
+export async function fetchLastRoundPlayerIds(tripId: string): Promise<string[]> {
+  const { data: lastRound, error: roundErr } = await supabase
+    .from("rounds")
+    .select("id")
+    .eq("trip_id", tripId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (roundErr) throw new Error(`Couldn't check the last round: ${roundErr.message}`);
+  if (!lastRound) return [];
+
+  const { data: groups, error: groupsErr } = await supabase
+    .from("groups")
+    .select("group_players(player_id)")
+    .eq("round_id", lastRound.id);
+  if (groupsErr) throw new Error(`Couldn't load the last round's players: ${groupsErr.message}`);
+
+  const ids = new Set<string>();
+  for (const g of groups ?? []) {
+    for (const gp of (g.group_players ?? []) as { player_id: string }[]) {
+      ids.add(gp.player_id);
+    }
+  }
+  return [...ids];
+}
+
 /** The trip's standing player roster — build it once, reuse every round. */
 export async function fetchTripRoster(tripId: string): Promise<Player[]> {
   const { data, error } = await supabase
