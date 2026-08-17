@@ -511,13 +511,19 @@ export type ActiveRyderCupTournament = {
    * in a player who wasn't around for the original split).
    */
   teamAssignment: RyderCupTeamAssignment;
+  /**
+   * The course planned for each round, set once up front when the Cup
+   * was created (see components/setup/FormatStep.tsx's "Course order"
+   * section) — same shape/behavior as ActiveTournament.courseOrder.
+   */
+  courseOrder: (string | null)[];
 };
 
 /** The trip's in-progress multi-round Ryder Cup, if any — null if none has been started. */
 export async function fetchActiveRyderCupTournament(tripId: string): Promise<ActiveRyderCupTournament | null> {
   const { data, error } = await supabase
     .from("ryder_cup_tournaments")
-    .select("id, team_a_name, team_b_name, total_rounds, team_assignment")
+    .select("id, team_a_name, team_b_name, total_rounds, team_assignment, course_order")
     .eq("trip_id", tripId)
     .order("created_at", { ascending: false })
     .limit(1)
@@ -532,13 +538,18 @@ export async function fetchActiveRyderCupTournament(tripId: string): Promise<Act
     .eq("type", "ryder_cup");
   if (countErr) throw new Error(`Couldn't check the Ryder Cup's rounds: ${countErr.message}`);
 
+  const roundsPlayed = count ?? 0;
+  const courseOrder = [...((data.course_order as (string | null)[] | null) ?? [])];
+  while (courseOrder.length <= roundsPlayed) courseOrder.push(null);
+
   return {
     id: data.id,
     teamAName: data.team_a_name,
     teamBName: data.team_b_name,
     totalRounds: data.total_rounds,
-    roundsPlayed: count ?? 0,
+    roundsPlayed,
     teamAssignment: (data.team_assignment as RyderCupTeamAssignment | null) ?? {},
+    courseOrder,
   };
 }
 
@@ -570,19 +581,23 @@ export async function createTournament(
  * team split (playerId -> "A" | "B") — saved so every later round
  * that joins this Cup starts locked to the same teams instead of
  * re-splitting the roster (see components/setup/TeamsStep.tsx).
- * Admin-only. Returns the new tournament id.
+ * `courseOrder` is the course planned for each round, same idea as
+ * createTournament's — optional, rounds can still pick their own
+ * course one at a time if left empty. Admin-only. Returns the new
+ * tournament id.
  */
 export async function createRyderCupTournament(
   tripId: string,
   teamAName: string,
   teamBName: string,
   totalRounds: number,
-  teamAssignment?: RyderCupTeamAssignment
+  teamAssignment?: RyderCupTeamAssignment,
+  courseOrder?: (string | null)[]
 ): Promise<string> {
   const res = await fetch("/api/admin/ryder-cup-tournament", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ tripId, teamAName, teamBName, totalRounds, teamAssignment }),
+    body: JSON.stringify({ tripId, teamAName, teamBName, totalRounds, teamAssignment, courseOrder }),
   });
   await throwOnError(res, "Couldn't create the Ryder Cup");
   const { id } = await res.json();

@@ -155,6 +155,10 @@ create table ryder_cup_tournaments (
   -- fetchActiveRyderCupTournament. Grows over the tournament as new
   -- players who weren't in the original split get assigned.
   team_assignment jsonb,
+  -- The course planned for each round, picked up front when the Cup
+  -- is created (see components/setup/FormatStep.tsx's "Course order"
+  -- section) — same idea and shape as tournaments.course_order above.
+  course_order uuid[],
   created_at timestamptz default now()
 );
 

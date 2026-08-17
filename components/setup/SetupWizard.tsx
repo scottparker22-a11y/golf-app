@@ -23,7 +23,7 @@ import {
 import CourseStep from "./CourseStep";
 import PlayersStep from "./PlayersStep";
 import FormatStep from "./FormatStep";
-import TeamsStep, { DEFAULT_RYDER_CUP_CONFIG, type RyderCupWizardConfig } from "./TeamsStep";
+import { DEFAULT_RYDER_CUP_CONFIG, type RyderCupWizardConfig } from "./TeamsStep";
 import FoursomesStep, { type Group } from "./FoursomesStep";
 import SkinsStep from "./SkinsStep";
 import RoundsStep from "./RoundsStep";
@@ -48,11 +48,10 @@ const TABS = [
   { id: "format", label: "1 · Format" },
   { id: "course", label: "2 · Course" },
   { id: "players", label: "3 · Players" },
-  { id: "teams", label: "4 · Ryder Cup" },
-  { id: "foursomes", label: "5 · Foursomes" },
-  { id: "skins", label: "6 · Skins" },
-  { id: "stats", label: "7 · Stats" },
-  { id: "scorer", label: "8 · Scorekeeper" },
+  { id: "foursomes", label: "4 · Foursomes" },
+  { id: "skins", label: "5 · Skins" },
+  { id: "stats", label: "6 · Stats" },
+  { id: "scorer", label: "7 · Scorekeeper" },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -90,6 +89,10 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
   const [tournamentCourseOrder, setTournamentCourseOrderState] = useState<(string | null)[]>([]);
   const [activeRyderCup, setActiveRyderCup] = useState<ActiveRyderCupTournament | null>(null);
   const [ryderCupTotalRounds, setRyderCupTotalRounds] = useState(4);
+  // Same idea as tournamentCourseOrder above, for a brand-new Ryder
+  // Cup — see FormatStep.tsx's "Course order" section (now shared by
+  // both the Tournament and Ryder Cup blocks on that one tab).
+  const [ryderCupCourseOrder, setRyderCupCourseOrderState] = useState<(string | null)[]>([]);
 
   const [roster, setRoster] = useState<Player[]>([]);
   const rosterIds = new Set(roster.map(r => r.id));
@@ -149,6 +152,10 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
           if (Object.keys(rc.teamAssignment).length > 0) {
             setTeamAssignment(prev => ({ ...rc.teamAssignment, ...prev }));
           }
+          // This round's slot in the Cup's pre-planned course order —
+          // same auto-fill as the Tournament's above.
+          const nextCourseId = rc.courseOrder[rc.roundsPlayed];
+          if (nextCourseId) setCourseId(nextCourseId);
         }
       })
       .catch(() => {
@@ -169,6 +176,21 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
   // Course step, instead of asking the user to pick it twice.
   const setTournamentCourseOrderAt = (index: number, id: string | null) => {
     setTournamentCourseOrderState(prev => {
+      const next = [...prev];
+      while (next.length <= index) next.push(null);
+      next[index] = id;
+      return next;
+    });
+    if (index === 0) setCourseId(id);
+  };
+
+  // Same idea, for a brand-new Ryder Cup's course order. If both a
+  // Tournament and a Ryder Cup are being created for the same round
+  // (independent, per FormatStep.tsx) and both set round 1's course,
+  // whichever was picked more recently wins — an edge case worth
+  // noting, not worth blocking on.
+  const setRyderCupCourseOrderAt = (index: number, id: string | null) => {
+    setRyderCupCourseOrderState(prev => {
       const next = [...prev];
       while (next.length <= index) next.push(null);
       next[index] = id;
@@ -224,7 +246,14 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
       if (ryderCup.enabled) {
         ryderCupTournamentId = activeRyderCup
           ? activeRyderCup.id
-          : await createRyderCupTournament(DEMO_TRIP_ID, ryderCup.teamAName, ryderCup.teamBName, ryderCupTotalRounds);
+          : await createRyderCupTournament(
+              DEMO_TRIP_ID,
+              ryderCup.teamAName,
+              ryderCup.teamBName,
+              ryderCupTotalRounds,
+              undefined,
+              ryderCupCourseOrder
+            );
       }
 
       const { roundId: newRoundId, idMap } = await createRoundWithRoster(
@@ -305,11 +334,17 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
           setUsesHandicap={setUsesHandicap}
           tournamentCourseOrder={tournamentCourseOrder}
           setTournamentCourseOrderAt={setTournamentCourseOrderAt}
+          players={players}
           ryderCup={ryderCup}
           setRyderCup={setRyderCup}
+          assignment={teamAssignment}
+          setAssignment={setTeamAssignment}
+          ryderCupLocked={ryderCupTeamsLocked}
           activeRyderCup={activeRyderCup}
           ryderCupTotalRounds={ryderCupTotalRounds}
           setRyderCupTotalRounds={setRyderCupTotalRounds}
+          ryderCupCourseOrder={ryderCupCourseOrder}
+          setRyderCupCourseOrderAt={setRyderCupCourseOrderAt}
         />
       )}
       {tab === "course" && <CourseStep courseId={courseId} setCourseId={setCourseId} />}
@@ -320,16 +355,6 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
           roster={roster}
           onDeleteFromRoster={handleDeleteFromRoster}
           lastRoundPlayerIds={lastRoundPlayerIds}
-        />
-      )}
-      {tab === "teams" && (
-        <TeamsStep
-          players={players}
-          assignment={teamAssignment}
-          setAssignment={setTeamAssignment}
-          ryderCup={ryderCup}
-          setRyderCup={setRyderCup}
-          locked={ryderCupTeamsLocked}
         />
       )}
       {tab === "foursomes" && <FoursomesStep players={players} groups={groups} setGroups={setGroups} />}

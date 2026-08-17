@@ -10,11 +10,12 @@ import {
   usesPairing,
 } from "@/lib/scoring";
 import { useLiveRound } from "@/lib/liveRound";
-import { fetchRyderCupTeamScoreForTrip, type RyderCupTripScore } from "@/lib/rounds";
+import { fetchRyderCupGame, fetchRyderCupTeamScoreForTrip, type RyderCupTripScore } from "@/lib/rounds";
 import RyderCupScoreBanner from "./RyderCupScoreBanner";
+import RyderCupBoard from "./RyderCupBoard";
 
 export default function Leaderboard({ roundId, tripId }: { roundId: string; tripId: string }) {
-  const [view, setView] = useState<"team" | "individual">("individual");
+  const [view, setView] = useState<"team" | "individual" | "ryderCup">("individual");
   const [scoreMode, setScoreMode] = useState<"gross" | "net">("gross");
 
   // Live, shared with every other device watching this same round —
@@ -22,8 +23,8 @@ export default function Leaderboard({ roundId, tripId }: { roundId: string; trip
   const { loading, error, players, holes, teams, holeScores } = useLiveRound(roundId);
 
   // Trip-wide, fetch-once (not live) — see lib/rounds.ts
-  // fetchRyderCupTeamScoreForTrip. Shown above the Individual/Team
-  // toggle since the overall Cup score is what people check first.
+  // fetchRyderCupTeamScoreForTrip. Shown above the view toggle since
+  // the overall Cup score is what people check first.
   const [ryderCupTripScore, setRyderCupTripScore] = useState<RyderCupTripScore | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -38,6 +39,26 @@ export default function Leaderboard({ roundId, tripId }: { roundId: string; trip
       cancelled = true;
     };
   }, [tripId]);
+
+  // Whether THIS round has a Ryder Cup game — gates the third view
+  // toggle below (see components/RyderCupBoard.tsx, embedded here
+  // instead of living on its own page). Independent of
+  // ryderCupTripScore above, which is trip-wide and can exist even
+  // when this particular round has no Ryder Cup game of its own.
+  const [hasRyderCup, setHasRyderCup] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    fetchRyderCupGame(roundId)
+      .then(game => {
+        if (!cancelled) setHasRyderCup(!!game);
+      })
+      .catch(() => {
+        // Non-fatal — the Ryder Cup view toggle just won't show.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [roundId]);
 
   const courseHandicaps = useMemo(() => {
     const map: Record<string, number> = {};
@@ -163,28 +184,42 @@ export default function Leaderboard({ roundId, tripId }: { roundId: string; trip
         >
           Team
         </button>
+        {hasRyderCup && (
+          <button
+            onClick={() => setView("ryderCup")}
+            className={`flex-1 text-sm font-semibold py-2 rounded-lg ${
+              view === "ryderCup" ? "bg-surface-raised text-chalk" : "text-chalk-dim"
+            }`}
+          >
+            Ryder Cup
+          </button>
+        )}
       </div>
 
-      <div className="flex gap-1 mx-5 mt-2 p-1 bg-surface border border-[color:var(--border)] rounded-xl">
-        <button
-          onClick={() => setScoreMode("gross")}
-          className={`flex-1 text-sm font-semibold py-2 rounded-lg ${
-            scoreMode === "gross" ? "bg-surface-raised text-chalk" : "text-chalk-dim"
-          }`}
-        >
-          Gross
-        </button>
-        <button
-          onClick={() => setScoreMode("net")}
-          className={`flex-1 text-sm font-semibold py-2 rounded-lg ${
-            scoreMode === "net" ? "bg-surface-raised text-chalk" : "text-chalk-dim"
-          }`}
-        >
-          Net
-        </button>
-      </div>
+      {view !== "ryderCup" && (
+        <div className="flex gap-1 mx-5 mt-2 p-1 bg-surface border border-[color:var(--border)] rounded-xl">
+          <button
+            onClick={() => setScoreMode("gross")}
+            className={`flex-1 text-sm font-semibold py-2 rounded-lg ${
+              scoreMode === "gross" ? "bg-surface-raised text-chalk" : "text-chalk-dim"
+            }`}
+          >
+            Gross
+          </button>
+          <button
+            onClick={() => setScoreMode("net")}
+            className={`flex-1 text-sm font-semibold py-2 rounded-lg ${
+              scoreMode === "net" ? "bg-surface-raised text-chalk" : "text-chalk-dim"
+            }`}
+          >
+            Net
+          </button>
+        </div>
+      )}
 
-      {view === "team" ? (
+      {view === "ryderCup" ? (
+        <RyderCupBoard roundId={roundId} players={players} holes={holes} holeScores={holeScores} />
+      ) : view === "team" ? (
         <div className="px-3 pt-4 pb-1">
           {teamStandings.map((team, i) => (
             <div

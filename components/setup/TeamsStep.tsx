@@ -35,6 +35,11 @@ function blankMatch(matchNumber: number): RyderCupMatchConfig {
   };
 }
 
+// Embedded inside components/setup/FormatStep.tsx's "Also play Ryder
+// Cup" section (there's no separate Ryder Cup tab anymore) — this
+// component owns no outer page padding of its own and assumes
+// ryderCup.enabled is already true, since the caller only renders it
+// in that state.
 export default function TeamsStep({
   players,
   assignment,
@@ -115,7 +120,7 @@ export default function TeamsStep({
   };
 
   return (
-    <div className="px-5 pt-4">
+    <div>
       <p className="text-[13px] text-chalk-dim leading-relaxed mb-4">
         {effectiveLocked
           ? "Teams for this Ryder Cup were set on round 1 and carry over automatically — the same players stay on the same side all tournament."
@@ -201,37 +206,28 @@ export default function TeamsStep({
         </div>
       )}
 
-      {!ryderCup.enabled && (
-        <div className="mb-4 p-3.5 bg-surface border border-[color:var(--border)] rounded-xl text-[12.5px] text-chalk-dim leading-relaxed">
-          Ryder Cup Style isn&apos;t on for this round — enable &quot;Also play Ryder Cup&quot; on the Format
-          step first, then come back here to build teams and matches.
-        </div>
+      <div className="flex items-center gap-2 mb-4">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-chalk-dim">
+          Points per match, by default
+        </span>
+        <input
+          type="number"
+          min={0.5}
+          step="0.5"
+          value={ryderCup.defaultPointValue}
+          onChange={e => setRyderCup({ ...ryderCup, defaultPointValue: parseFloat(e.target.value) || 0 })}
+          className="w-16 bg-surface-raised border border-[color:var(--border-strong)] rounded-lg px-2 py-1.5 text-sm font-mono"
+        />
+      </div>
+
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-chalk-dim mb-2">Matches</div>
+
+      {ryderCup.matches.length === 0 && (
+        <p className="text-[12.5px] text-chalk-dim mb-3">No matches yet — add one below.</p>
       )}
 
-      {ryderCup.enabled && (
-        <>
-          <div className="flex items-center gap-2 mb-4">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-chalk-dim">
-              Points per match, by default
-            </span>
-            <input
-              type="number"
-              min={0.5}
-              step="0.5"
-              value={ryderCup.defaultPointValue}
-              onChange={e => setRyderCup({ ...ryderCup, defaultPointValue: parseFloat(e.target.value) || 0 })}
-              className="w-16 bg-surface-raised border border-[color:var(--border-strong)] rounded-lg px-2 py-1.5 text-sm font-mono"
-            />
-          </div>
-
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-chalk-dim mb-2">Matches</div>
-
-          {ryderCup.matches.length === 0 && (
-            <p className="text-[12.5px] text-chalk-dim mb-3">No matches yet — add one below.</p>
-          )}
-
-          <div className="flex flex-col gap-2.5 mb-3">
-            {ryderCup.matches.map(match => {
+      <div className="flex flex-col gap-2.5 mb-3">
+        {ryderCup.matches.map(match => {
               const max = PLAYERS_PER_SIDE[match.format];
               return (
                 <div key={match.id} className="bg-surface border border-[color:var(--border)] rounded-xl p-3">
@@ -332,14 +328,12 @@ export default function TeamsStep({
             })}
           </div>
 
-          <button
-            onClick={addMatch}
-            className="w-full py-2.5 rounded-xl border border-dashed border-[color:var(--border-strong)] text-[12.5px] font-bold text-chalk-dim"
-          >
-            + Add match
-          </button>
-        </>
-      )}
+      <button
+        onClick={addMatch}
+        className="w-full py-2.5 rounded-xl border border-dashed border-[color:var(--border-strong)] text-[12.5px] font-bold text-chalk-dim"
+      >
+        + Add match
+      </button>
     </div>
   );
 }

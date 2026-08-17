@@ -1,14 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useLiveRound } from "@/lib/liveRound";
 import { fetchRyderCupGame, updateRyderCupGame } from "@/lib/rounds";
-import RyderCupScoreBanner from "./RyderCupScoreBanner";
+import type { Hole, HoleScore, Player } from "@/lib/types";
 import {
   approxCourseHandicap,
   calculateIndividualLeaderboard,
   calculateRyderCupMatch,
-  calculateRyderCupTeamScore,
   formatRyderCupMatchStatus,
   type RyderCupGameConfig,
   type RyderCupMatchConfig,
@@ -31,8 +29,33 @@ function rankLabel(sorted: { playerId: string; value: number }[], playerId: stri
   return tied ? `T${place}` : `${place}${suffix}`;
 }
 
-export default function RyderCupBoard({ roundId }: { roundId: string }) {
-  const { loading, error, players, holes, holeScores } = useLiveRound(roundId);
+// The Ryder Cup match-card view — embedded inside Leaderboard.tsx as
+// its third view mode (Individual / Team / Ryder Cup) for a round
+// that has a Ryder Cup game, rather than living on its own page. No
+// team-score banner here: Leaderboard.tsx already shows one at the
+// top of the page (trip-wide, via lib/rounds.ts
+// fetchRyderCupTeamScoreForTrip) regardless of which view is active,
+// so repeating a round-only score here would just be a second,
+// less-complete number for the same thing.
+//
+// players/holes/holeScores come from the parent's own useLiveRound
+// call rather than this component calling it a second time — two
+// useLiveRound(roundId) instances for the same round both try to open
+// a Supabase Realtime channel named `hole_scores:${roundId}`, and the
+// second subscribe() collides with the first ("cannot add
+// postgres_changes callbacks... after subscribe()"). Leaderboard.tsx
+// already handles the loading/error states before rendering this.
+export default function RyderCupBoard({
+  roundId,
+  players,
+  holes,
+  holeScores,
+}: {
+  roundId: string;
+  players: Player[];
+  holes: Hole[];
+  holeScores: HoleScore[];
+}) {
   const [game, setGame] = useState<Game | null | undefined>(undefined);
   const [gameError, setGameError] = useState<string | null>(null);
 
@@ -80,8 +103,6 @@ export default function RyderCupBoard({ roundId }: { roundId: string }) {
     );
   }, [game, holeScores, holes, courseHandicaps]);
 
-  const teamScore = useMemo(() => calculateRyderCupTeamScore(matchResults), [matchResults]);
-
   const saveOverride = async (matchId: string, override: RyderCupOverride | null) => {
     if (!game) return;
     const nextConfig: RyderCupGameConfig = {
@@ -96,20 +117,14 @@ export default function RyderCupBoard({ roundId }: { roundId: string }) {
     }
   };
 
-  if (loading || game === undefined) {
+  if (game === undefined) {
     return <div className="px-5 pt-8 text-sm text-chalk-dim">Loading Ryder Cup…</div>;
-  }
-  if (error) {
-    return (
-      <div className="mx-5 mt-4 p-3 bg-flag/10 border border-flag/30 rounded-xl text-[12.5px] text-flag">
-        Couldn&apos;t load the round: {error}
-      </div>
-    );
   }
   if (!game) {
     return (
       <div className="mx-5 mt-4 p-4 bg-surface border border-[color:var(--border)] rounded-xl text-[13px] text-chalk-dim leading-relaxed">
-        Ryder Cup Style isn&apos;t set up for this round. Enable it and build matches from Trip Setup → Ryder Cup.
+        Ryder Cup Style isn&apos;t set up for this round. Enable it and build matches from Trip Setup →
+        Format.
       </div>
     );
   }
@@ -127,10 +142,6 @@ export default function RyderCupBoard({ roundId }: { roundId: string }) {
       {gameError && (
         <div className="mb-4 p-3 bg-flag/10 border border-flag/30 rounded-xl text-[12.5px] text-flag">{gameError}</div>
       )}
-
-      <div className="mb-5">
-        <RyderCupScoreBanner teamAName={teamAName} teamBName={teamBName} teamScore={teamScore} />
-      </div>
 
       {live.length > 0 && (
         <Section title="Live matches">

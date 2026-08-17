@@ -10,7 +10,7 @@ import { DEMO_TRIP_ID } from "@/lib/rounds";
 // fetchActiveRyderCupTournament (which the wizard uses on later
 // rounds to auto-join instead of creating a second one).
 export async function POST(request: NextRequest) {
-  const { tripId, teamAName, teamBName, totalRounds, teamAssignment } = await request.json();
+  const { tripId, teamAName, teamBName, totalRounds, teamAssignment, courseOrder } = await request.json();
   const resolvedTripId = tripId ?? DEMO_TRIP_ID;
 
   const denied = requireAdmin(request, resolvedTripId);
@@ -32,6 +32,13 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // The course planned for each round, picked up front (see
+  // components/setup/FormatStep.tsx) — same convention as the
+  // Tournament's own course_order.
+  const cleanCourseOrder = Array.isArray(courseOrder)
+    ? courseOrder.map((c: unknown) => (typeof c === "string" && c.trim() ? c : null))
+    : null;
+
   const admin = getSupabaseAdmin();
   const { data, error } = await admin
     .from("ryder_cup_tournaments")
@@ -41,6 +48,7 @@ export async function POST(request: NextRequest) {
       team_b_name: (teamBName || "Team B").trim() || "Team B",
       total_rounds: rounds,
       team_assignment: cleanAssignment,
+      course_order: cleanCourseOrder,
     })
     .select("id")
     .single();
