@@ -73,7 +73,6 @@ const LAST_TAB: TabId = "scorer";
 
 export default function SetupWizard({ tripId }: { tripId: string }) {
   const router = useRouter();
-  const [tripName, setTripName] = useState(`Trip ${tripId}`);
   const [tab, setTab] = useState<TabId>("format");
 
   const [courseId, setCourseId] = useState<string | null>(null);
@@ -346,14 +345,7 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
     <main className="max-w-[460px] mx-auto min-h-screen pb-10">
       <PageNav />
       <div className="px-5 pt-6 pb-4 border-b border-[color:var(--border)]">
-        <div className="text-xs font-semibold uppercase tracking-wide text-chalk-dim mb-1.5">Trip setup</div>
-        <div className="flex items-center gap-2">
-          <input
-            className="font-display font-extrabold text-[28px] bg-transparent border-b border-dashed border-[color:var(--border-strong)] focus:border-turf outline-none flex-1 min-w-0 py-0.5"
-            value={tripName}
-            onChange={e => setTripName(e.target.value)}
-          />
-        </div>
+        <div className="font-display font-extrabold text-[28px]">Trip Set Up</div>
       </div>
 
       <div className="flex gap-1.5 px-4 py-3.5 overflow-x-auto border-b border-[color:var(--border)]">
