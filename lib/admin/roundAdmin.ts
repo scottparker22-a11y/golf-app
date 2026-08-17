@@ -31,6 +31,20 @@ async function createRyderCupGame(
   if (error) throw new Error(`Couldn't save the Ryder Cup game: ${error.message}`);
 }
 
+export type CreateRoundResult = {
+  roundId: string;
+  /**
+   * Wizard-local player id -> real DB player id, for every player in
+   * this round (both newly-inserted and existing-roster reuses).
+   * Callers that hold their own wizard-local-id-keyed data structure
+   * built before the round existed (see SetupWizard.tsx's
+   * teamAssignment, resolved into Ryder Cup team_assignment after the
+   * round is created) need this to translate to real ids — mirrors
+   * the remapping already done inline for ryderCupConfig.matches below.
+   */
+  idMap: Record<string, string>;
+};
+
 export async function runCreateRoundWithRoster(
   admin: SupabaseClient,
   tripId: string,
@@ -42,7 +56,7 @@ export async function runCreateRoundWithRoster(
   trackStats?: boolean,
   tournamentId?: string | null,
   ryderCupTournamentId?: string | null
-): Promise<string> {
+): Promise<CreateRoundResult> {
   const namedPlayers = players.filter(p => p.name.trim().length > 0);
   if (namedPlayers.length === 0) {
     throw new Error("Add at least one player before finishing setup.");
@@ -158,5 +172,5 @@ export async function runCreateRoundWithRoster(
     await createRyderCupGame(admin, newRound.id, remapped, ryderCupTournamentId);
   }
 
-  return newRound.id;
+  return { roundId: newRound.id, idMap: Object.fromEntries(idMap) };
 }

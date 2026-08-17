@@ -147,6 +147,14 @@ create table ryder_cup_tournaments (
   team_a_name text not null default 'Team A',
   team_b_name text not null default 'Team B',
   total_rounds int not null check (total_rounds > 0),
+  -- { [playerId]: "A" | "B" } — set when the Cup is created (round 1's
+  -- team split) and carried over to every later round that joins it,
+  -- so the same players stay on the same side all tournament instead
+  -- of being re-split each round. See components/setup/TeamsStep.tsx
+  -- (locked once this is non-empty) and lib/rounds.ts
+  -- fetchActiveRyderCupTournament. Grows over the tournament as new
+  -- players who weren't in the original split get assigned.
+  team_assignment jsonb,
   created_at timestamptz default now()
 );
 

@@ -14,6 +14,7 @@ import {
   fetchActiveTournament,
   fetchLastRoundPlayerIds,
   fetchTripRoster,
+  updateRyderCupTournamentTeams,
   type ActiveRyderCupTournament,
   type ActiveTournament,
   type RosterGroup,
@@ -138,12 +139,27 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
     fetchActiveRyderCupTournament(DEMO_TRIP_ID)
       .then(rc => {
         setActiveRyderCup(rc);
-        if (rc) setRyderCup(prev => ({ ...prev, enabled: true }));
+        if (rc) {
+          setRyderCup(prev => ({ ...prev, enabled: true }));
+          // Carry over round 1's team split so this round starts
+          // locked to the same teams instead of re-splitting the
+          // roster (see components/setup/TeamsStep.tsx). Anyone new
+          // to the trip just won't have an entry yet — TeamsStep's
+          // "Unassigned" section handles them.
+          if (Object.keys(rc.teamAssignment).length > 0) {
+            setTeamAssignment(prev => ({ ...rc.teamAssignment, ...prev }));
+          }
+        }
       })
       .catch(() => {
         // Non-fatal — falls back to "no active Ryder Cup detected".
       });
   }, []);
+
+  // Locked once the active Ryder Cup already has a saved team split —
+  // TeamsStep.tsx hides the reshuffle controls in that state so teams
+  // genuinely stay the same all tournament, not just "usually".
+  const ryderCupTeamsLocked = !!activeRyderCup && Object.keys(activeRyderCup.teamAssignment).length > 0;
 
   const tabIndex = TABS.findIndex(t => t.id === tab);
   const isLastTab = tab === LAST_TAB;
@@ -211,7 +227,7 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
           : await createRyderCupTournament(DEMO_TRIP_ID, ryderCup.teamAName, ryderCup.teamBName, ryderCupTotalRounds);
       }
 
-      const newRoundId = await createRoundWithRoster(
+      const { roundId: newRoundId, idMap } = await createRoundWithRoster(
         DEMO_TRIP_ID,
         courseId,
         rosterPlayers,
@@ -222,6 +238,25 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
         tournamentId,
         ryderCupTournamentId
       );
+
+      // Persist team_assignment only now, using the real DB player ids
+      // (idMap) instead of this wizard session's local ones — brand-new
+      // players don't get a real id until the round above actually
+      // inserts them. Only ever sends entries not already saved (empty
+      // for a fresh Cup, so this covers round 1 too), so an in-progress
+      // Cup's earlier rounds' locked-in teams are never touched.
+      if (ryderCup.enabled && ryderCupTournamentId) {
+        const existingAssignment = activeRyderCup?.teamAssignment ?? {};
+        const newAssignments = Object.fromEntries(
+          Object.entries(teamAssignment)
+            .map(([localId, side]) => [idMap[localId] ?? localId, side] as const)
+            .filter(([playerId]) => !(playerId in existingAssignment))
+        );
+        if (Object.keys(newAssignments).length > 0) {
+          await updateRyderCupTournamentTeams(ryderCupTournamentId, newAssignments);
+        }
+      }
+
       router.push(`/trip/${tripId}/round/${newRoundId}/scorecard`);
     } catch (e) {
       setFinishError(e instanceof Error ? e.message : "Couldn't finish setup");
@@ -294,6 +329,7 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
           setAssignment={setTeamAssignment}
           ryderCup={ryderCup}
           setRyderCup={setRyderCup}
+          locked={ryderCupTeamsLocked}
         />
       )}
       {tab === "foursomes" && <FoursomesStep players={players} groups={groups} setGroups={setGroups} />}

@@ -393,6 +393,18 @@ export type RosterGroup = {
  * actual DB work happens server-side in lib/admin/roundAdmin.ts, run
  * from app/api/admin/round/route.ts.
  */
+export type CreateRoundResult = {
+  roundId: string;
+  /**
+   * Wizard-local player id -> real DB player id, for every player in
+   * this round — lets a caller that built something keyed by
+   * wizard-local ids before the round existed (see SetupWizard.tsx's
+   * teamAssignment) translate to real ids afterward. See
+   * lib/admin/roundAdmin.ts's matching CreateRoundResult type.
+   */
+  idMap: Record<string, string>;
+};
+
 export async function createRoundWithRoster(
   tripId: string,
   courseId: string,
@@ -403,7 +415,7 @@ export async function createRoundWithRoster(
   trackStats?: boolean,
   tournamentId?: string | null,
   ryderCupTournamentId?: string | null
-): Promise<string> {
+): Promise<CreateRoundResult> {
   const res = await fetch("/api/admin/round", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -420,8 +432,7 @@ export async function createRoundWithRoster(
     }),
   });
   await throwOnError(res, "Couldn't finish setup");
-  const { roundId } = await res.json();
-  return roundId;
+  return res.json();
 }
 
 // ── Multi-round Tournament + trip-wide Ryder Cup ─────────────────
@@ -482,6 +493,8 @@ export async function fetchActiveTournament(tripId: string): Promise<ActiveTourn
   };
 }
 
+export type RyderCupTeamAssignment = Record<string, "A" | "B">;
+
 export type ActiveRyderCupTournament = {
   id: string;
   teamAName: string;
@@ -489,13 +502,22 @@ export type ActiveRyderCupTournament = {
   totalRounds: number;
   /** How many rounds have already set up a Ryder Cup game linked to it. */
   roundsPlayed: number;
+  /**
+   * Who's on Team A vs Team B — set once when the Cup is created
+   * (round 1's split) and carried over so the same players stay on
+   * the same side every round instead of being re-split each time.
+   * See components/setup/TeamsStep.tsx (locked once this is
+   * non-empty) and updateRyderCupTournamentTeams below (for merging
+   * in a player who wasn't around for the original split).
+   */
+  teamAssignment: RyderCupTeamAssignment;
 };
 
 /** The trip's in-progress multi-round Ryder Cup, if any — null if none has been started. */
 export async function fetchActiveRyderCupTournament(tripId: string): Promise<ActiveRyderCupTournament | null> {
   const { data, error } = await supabase
     .from("ryder_cup_tournaments")
-    .select("id, team_a_name, team_b_name, total_rounds")
+    .select("id, team_a_name, team_b_name, total_rounds, team_assignment")
     .eq("trip_id", tripId)
     .order("created_at", { ascending: false })
     .limit(1)
@@ -516,6 +538,7 @@ export async function fetchActiveRyderCupTournament(tripId: string): Promise<Act
     teamBName: data.team_b_name,
     totalRounds: data.total_rounds,
     roundsPlayed: count ?? 0,
+    teamAssignment: (data.team_assignment as RyderCupTeamAssignment | null) ?? {},
   };
 }
 
@@ -542,21 +565,48 @@ export async function createTournament(
   return id;
 }
 
-/** Creates the trip-wide Ryder Cup row. Admin-only. Returns the new tournament id. */
+/**
+ * Creates the trip-wide Ryder Cup row. `teamAssignment` is round 1's
+ * team split (playerId -> "A" | "B") — saved so every later round
+ * that joins this Cup starts locked to the same teams instead of
+ * re-splitting the roster (see components/setup/TeamsStep.tsx).
+ * Admin-only. Returns the new tournament id.
+ */
 export async function createRyderCupTournament(
   tripId: string,
   teamAName: string,
   teamBName: string,
-  totalRounds: number
+  totalRounds: number,
+  teamAssignment?: RyderCupTeamAssignment
 ): Promise<string> {
   const res = await fetch("/api/admin/ryder-cup-tournament", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ tripId, teamAName, teamBName, totalRounds }),
+    body: JSON.stringify({ tripId, teamAName, teamBName, totalRounds, teamAssignment }),
   });
   await throwOnError(res, "Couldn't create the Ryder Cup");
   const { id } = await res.json();
   return id;
+}
+
+/**
+ * Merges newly-assigned players into an existing Ryder Cup's saved
+ * team split — used when a round joining the Cup has a player who
+ * wasn't around for the original split (see
+ * components/setup/TeamsStep.tsx's "Unassigned" section). Only ever
+ * adds/updates entries, never removes existing ones, so earlier
+ * rounds' locked-in teams are untouched. Admin-only.
+ */
+export async function updateRyderCupTournamentTeams(
+  tournamentId: string,
+  teamAssignment: RyderCupTeamAssignment
+): Promise<void> {
+  const res = await fetch(`/api/admin/ryder-cup-tournament/${tournamentId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ teamAssignment }),
+  });
+  await throwOnError(res, "Couldn't update the Ryder Cup's teams");
 }
 
 /** One round's holes + player-keyed hole_scores — the minimal read a cross-round aggregate needs. */

@@ -10,7 +10,7 @@ import { DEMO_TRIP_ID } from "@/lib/rounds";
 // fetchActiveRyderCupTournament (which the wizard uses on later
 // rounds to auto-join instead of creating a second one).
 export async function POST(request: NextRequest) {
-  const { tripId, teamAName, teamBName, totalRounds } = await request.json();
+  const { tripId, teamAName, teamBName, totalRounds, teamAssignment } = await request.json();
   const resolvedTripId = tripId ?? DEMO_TRIP_ID;
 
   const denied = requireAdmin(request, resolvedTripId);
@@ -21,6 +21,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "The Ryder Cup needs at least 1 round." }, { status: 400 });
   }
 
+  // Round 1's team split, carried forward — see
+  // lib/rounds.ts createRyderCupTournament. Anything that isn't a
+  // plain { playerId: "A" | "B" } map collapses to empty rather than
+  // failing the whole request.
+  const cleanAssignment: Record<string, "A" | "B"> = {};
+  if (teamAssignment && typeof teamAssignment === "object") {
+    for (const [playerId, side] of Object.entries(teamAssignment)) {
+      if (side === "A" || side === "B") cleanAssignment[playerId] = side;
+    }
+  }
+
   const admin = getSupabaseAdmin();
   const { data, error } = await admin
     .from("ryder_cup_tournaments")
@@ -29,6 +40,7 @@ export async function POST(request: NextRequest) {
       team_a_name: (teamAName || "Team A").trim() || "Team A",
       team_b_name: (teamBName || "Team B").trim() || "Team B",
       total_rounds: rounds,
+      team_assignment: cleanAssignment,
     })
     .select("id")
     .single();

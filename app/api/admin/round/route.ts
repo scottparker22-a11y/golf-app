@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const admin = getSupabaseAdmin();
-    const roundId = await runCreateRoundWithRoster(
+    const { roundId, idMap } = await runCreateRoundWithRoster(
       admin,
       tripId ?? DEMO_TRIP_ID,
       courseId,
@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
       tournamentId,
       ryderCupTournamentId
     );
-    return NextResponse.json({ roundId });
+    return NextResponse.json({ roundId, idMap });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Couldn't finish setup";
     return NextResponse.json({ error: message }, { status: 500 });
