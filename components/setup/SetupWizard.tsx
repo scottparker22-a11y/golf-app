@@ -77,10 +77,17 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
   // can still be opted out of on the Format step.
   const [roundType, setRoundType] = useState<"individual" | "tournament">("individual");
   const [activeTournament, setActiveTournament] = useState<ActiveTournament | null>(null);
-  const [tournamentTotalRounds, setTournamentTotalRounds] = useState(3);
+  const [tournamentTotalRounds, setTournamentTotalRounds] = useState(4);
   const [usesHandicap, setUsesHandicap] = useState(false);
+  // Which course is played each round of a brand-new Tournament, set
+  // once up front on the Format step (index 0 = this round) instead of
+  // picking one course at a time every time a new round starts — see
+  // FormatStep.tsx's "Course order" section. Index i holds a course id
+  // or null (not decided yet); later rounds joining this tournament
+  // auto-fill their course from activeTournament.courseOrder instead.
+  const [tournamentCourseOrder, setTournamentCourseOrderState] = useState<(string | null)[]>([]);
   const [activeRyderCup, setActiveRyderCup] = useState<ActiveRyderCupTournament | null>(null);
-  const [ryderCupTotalRounds, setRyderCupTotalRounds] = useState(3);
+  const [ryderCupTotalRounds, setRyderCupTotalRounds] = useState(4);
 
   const [roster, setRoster] = useState<Player[]>([]);
   const rosterIds = new Set(roster.map(r => r.id));
@@ -102,7 +109,16 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
     fetchActiveTournament(DEMO_TRIP_ID)
       .then(t => {
         setActiveTournament(t);
-        if (t) setRoundType("tournament");
+        if (t) {
+          setRoundType("tournament");
+          // This round's slot in the tournament's pre-planned course
+          // order (see FormatStep.tsx) — auto-fill the Course step
+          // instead of asking again, same as the round-type/Ryder Cup
+          // auto-join above. Leaves courseId alone if that slot was
+          // never set (null) or the tournament's already past it.
+          const nextCourseId = t.courseOrder[t.roundsPlayed];
+          if (nextCourseId) setCourseId(nextCourseId);
+        }
       })
       .catch(() => {
         // Non-fatal — falls back to "no active tournament detected".
@@ -119,6 +135,19 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
 
   const tabIndex = TABS.findIndex(t => t.id === tab);
   const isLastTab = tab === LAST_TAB;
+
+  // Round 1 of a brand-new tournament's course order IS this round's
+  // course — keep them in sync so picking it here also fills in the
+  // Course step, instead of asking the user to pick it twice.
+  const setTournamentCourseOrderAt = (index: number, id: string | null) => {
+    setTournamentCourseOrderState(prev => {
+      const next = [...prev];
+      while (next.length <= index) next.push(null);
+      next[index] = id;
+      return next;
+    });
+    if (index === 0) setCourseId(id);
+  };
 
   const handleDeleteFromRoster = async (player: Player) => {
     await deletePlayer(player.id);
@@ -156,7 +185,12 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
       if (roundType === "tournament") {
         tournamentId = activeTournament
           ? activeTournament.id
-          : await createTournament(DEMO_TRIP_ID, tournamentTotalRounds, usesHandicap);
+          : await createTournament(
+              DEMO_TRIP_ID,
+              tournamentTotalRounds,
+              usesHandicap,
+              tournamentCourseOrder
+            );
       }
       let ryderCupTournamentId: string | null = null;
       if (ryderCup.enabled) {
@@ -222,6 +256,8 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
           setTournamentTotalRounds={setTournamentTotalRounds}
           usesHandicap={usesHandicap}
           setUsesHandicap={setUsesHandicap}
+          tournamentCourseOrder={tournamentCourseOrder}
+          setTournamentCourseOrderAt={setTournamentCourseOrderAt}
           ryderCup={ryderCup}
           setRyderCup={setRyderCup}
           activeRyderCup={activeRyderCup}

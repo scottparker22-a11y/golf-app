@@ -9,7 +9,7 @@ import { DEMO_TRIP_ID } from "@/lib/rounds";
 // (which the wizard uses on later rounds to auto-join instead of
 // creating a second one).
 export async function POST(request: NextRequest) {
-  const { tripId, totalRounds, usesHandicap } = await request.json();
+  const { tripId, totalRounds, usesHandicap, courseOrder } = await request.json();
   const resolvedTripId = tripId ?? DEMO_TRIP_ID;
 
   const denied = requireAdmin(request, resolvedTripId);
@@ -20,6 +20,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Tournaments need at least 1 round." }, { status: 400 });
   }
 
+  // Optional — the course planned for each round, picked up front on
+  // the Format step (see components/setup/FormatStep.tsx). Each entry
+  // is a course id or null; anything that isn't a non-empty string
+  // collapses to null rather than failing the whole request.
+  const cleanCourseOrder = Array.isArray(courseOrder)
+    ? courseOrder.map((c: unknown) => (typeof c === "string" && c.trim() ? c : null))
+    : null;
+
   const admin = getSupabaseAdmin();
   const { data, error } = await admin
     .from("tournaments")
@@ -28,6 +36,7 @@ export async function POST(request: NextRequest) {
       format: "stroke_play",
       total_rounds: rounds,
       uses_handicap: !!usesHandicap,
+      course_order: cleanCourseOrder,
     })
     .select("id")
     .single();

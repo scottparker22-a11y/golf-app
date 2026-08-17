@@ -11,7 +11,8 @@
 // The Ryder Cup toggle itself used to live in TeamsStep.tsx — it
 // moved here so both cross-round formats are picked in one place;
 // TeamsStep still owns team names/matches, just reads `ryderCup.enabled`.
-import type { ActiveRyderCupTournament, ActiveTournament } from "@/lib/rounds";
+import { useEffect, useState } from "react";
+import { createCourse, fetchCourses, type ActiveRyderCupTournament, type ActiveTournament, type CourseSummary } from "@/lib/rounds";
 import type { RyderCupWizardConfig } from "./TeamsStep";
 
 export default function FormatStep({
@@ -22,6 +23,8 @@ export default function FormatStep({
   setTournamentTotalRounds,
   usesHandicap,
   setUsesHandicap,
+  tournamentCourseOrder,
+  setTournamentCourseOrderAt,
   ryderCup,
   setRyderCup,
   activeRyderCup,
@@ -35,12 +38,50 @@ export default function FormatStep({
   setTournamentTotalRounds: (n: number) => void;
   usesHandicap: boolean;
   setUsesHandicap: (v: boolean) => void;
+  tournamentCourseOrder: (string | null)[];
+  setTournamentCourseOrderAt: (index: number, courseId: string | null) => void;
   ryderCup: RyderCupWizardConfig;
   setRyderCup: (r: RyderCupWizardConfig) => void;
   activeRyderCup: ActiveRyderCupTournament | null;
   ryderCupTotalRounds: number;
   setRyderCupTotalRounds: (n: number) => void;
 }) {
+  // Only needed for the "Course order" picker below (a brand-new
+  // Tournament's course per round) — fetched independently of
+  // CourseStep.tsx's own copy since Format comes before Course in the
+  // wizard and each step only mounts once its tab is opened.
+  const [courses, setCourses] = useState<CourseSummary[] | null>(null);
+  const [courseError, setCourseError] = useState<string | null>(null);
+  const [showAddCourse, setShowAddCourse] = useState(false);
+  const [newCourseName, setNewCourseName] = useState("");
+  const [newCourseLocation, setNewCourseLocation] = useState("");
+  const [addingCourse, setAddingCourse] = useState(false);
+
+  useEffect(() => {
+    if (roundType !== "tournament" || activeTournament) return;
+    fetchCourses()
+      .then(setCourses)
+      .catch(e => setCourseError(e instanceof Error ? e.message : "Couldn't load courses"));
+  }, [roundType, activeTournament]);
+
+  const handleAddCourse = async () => {
+    setAddingCourse(true);
+    setCourseError(null);
+    try {
+      const id = await createCourse(newCourseName, newCourseLocation);
+      setCourses(await fetchCourses());
+      setNewCourseName("");
+      setNewCourseLocation("");
+      setShowAddCourse(false);
+      // Nothing picked for round 1 yet? Default straight to the one
+      // just added, same courtesy CourseStep.tsx gives its own list.
+      if (!tournamentCourseOrder[0]) setTournamentCourseOrderAt(0, id);
+    } catch (e) {
+      setCourseError(e instanceof Error ? e.message : "Couldn't add the course");
+    } finally {
+      setAddingCourse(false);
+    }
+  };
   return (
     <div className="px-5 pt-4">
       <p className="text-[13px] text-chalk-dim leading-relaxed mb-4">
@@ -117,6 +158,88 @@ export default function FormatStep({
                 </span>
                 <span className="text-[12.5px] font-semibold">Use handicap (net) for the Tournament leaderboard</span>
               </button>
+
+              <div className="mt-3.5 pt-3.5 border-t border-[color:var(--border)]">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-chalk-dim mb-1">
+                  Course order
+                </div>
+                <p className="text-[11px] text-chalk-dim leading-relaxed mb-2.5">
+                  Optional — pick which course each round is played on, in order. Round 1&apos;s pick
+                  becomes this round&apos;s course too; leave any round blank to just pick its course
+                  when that round starts.
+                </p>
+
+                {courseError && (
+                  <div className="mb-2 p-2 bg-flag/10 border border-flag/30 rounded-lg text-[11px] text-flag">
+                    {courseError}
+                  </div>
+                )}
+
+                {!courses ? (
+                  <p className="text-[12px] text-chalk-dim">Loading courses…</p>
+                ) : (
+                  <div className="flex flex-col gap-1.5 mb-2.5">
+                    {Array.from({ length: tournamentTotalRounds }, (_, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <span className="text-[11.5px] font-bold text-chalk-dim w-14 flex-shrink-0">
+                          Round {i + 1}
+                        </span>
+                        <select
+                          value={tournamentCourseOrder[i] ?? ""}
+                          onChange={e => setTournamentCourseOrderAt(i, e.target.value || null)}
+                          className="flex-1 min-w-0 bg-surface-raised border border-[color:var(--border-strong)] rounded-lg px-2.5 py-2 text-[12.5px]"
+                        >
+                          <option value="">— pick later —</option>
+                          {courses.map(c => (
+                            <option key={c.id} value={c.id}>
+                              {c.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {showAddCourse ? (
+                  <div className="bg-surface-raised border border-[color:var(--border)] rounded-xl p-3">
+                    <input
+                      placeholder="Course name"
+                      value={newCourseName}
+                      onChange={e => setNewCourseName(e.target.value)}
+                      className="w-full bg-surface border border-[color:var(--border-strong)] rounded-lg px-2.5 py-2 text-[12.5px] mb-2"
+                    />
+                    <input
+                      placeholder="Location (optional)"
+                      value={newCourseLocation}
+                      onChange={e => setNewCourseLocation(e.target.value)}
+                      className="w-full bg-surface border border-[color:var(--border-strong)] rounded-lg px-2.5 py-2 text-[12.5px] mb-2.5"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleAddCourse}
+                        disabled={addingCourse || !newCourseName.trim()}
+                        className="flex-1 py-2 rounded-lg bg-turf text-fairway-950 font-bold text-[12px] disabled:opacity-60"
+                      >
+                        {addingCourse ? "Adding…" : "Add to queue"}
+                      </button>
+                      <button
+                        onClick={() => setShowAddCourse(false)}
+                        className="px-3.5 py-2 rounded-lg bg-surface text-chalk-dim font-bold text-[12px]"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setShowAddCourse(true)}
+                    className="w-full py-2.5 rounded-lg border border-dashed border-[color:var(--border-strong)] text-turf font-bold text-[12.5px]"
+                  >
+                    + Add a new course
+                  </button>
+                )}
+              </div>
             </>
           )}
         </div>

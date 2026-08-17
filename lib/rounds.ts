@@ -404,13 +404,23 @@ export type ActiveTournament = {
   usesHandicap: boolean;
   /** How many rounds have already opted into it — informational only, never a cap. */
   roundsPlayed: number;
+  /**
+   * The course planned for each round, set once up front on the
+   * Format step when the tournament was created (see
+   * components/setup/FormatStep.tsx's "Course order" section) —
+   * index i is round i+1's course id, or null if that slot was never
+   * decided. Always at least as long as roundsPlayed+1 so
+   * `courseOrder[roundsPlayed]` (this round's slot) is always a valid
+   * index, even on a tournament created before this existed.
+   */
+  courseOrder: (string | null)[];
 };
 
 /** The trip's in-progress multi-round Tournament, if any — null if none has been started. */
 export async function fetchActiveTournament(tripId: string): Promise<ActiveTournament | null> {
   const { data, error } = await supabase
     .from("tournaments")
-    .select("id, total_rounds, uses_handicap")
+    .select("id, total_rounds, uses_handicap, course_order")
     .eq("trip_id", tripId)
     .order("created_at", { ascending: false })
     .limit(1)
@@ -424,11 +434,16 @@ export async function fetchActiveTournament(tripId: string): Promise<ActiveTourn
     .eq("tournament_id", data.id);
   if (countErr) throw new Error(`Couldn't check the tournament's rounds: ${countErr.message}`);
 
+  const roundsPlayed = count ?? 0;
+  const courseOrder = [...((data.course_order as (string | null)[] | null) ?? [])];
+  while (courseOrder.length <= roundsPlayed) courseOrder.push(null);
+
   return {
     id: data.id,
     totalRounds: data.total_rounds,
     usesHandicap: data.uses_handicap,
-    roundsPlayed: count ?? 0,
+    roundsPlayed,
+    courseOrder,
   };
 }
 
@@ -469,16 +484,23 @@ export async function fetchActiveRyderCupTournament(tripId: string): Promise<Act
   };
 }
 
-/** Creates the trip-wide Tournament row. Admin-only. Returns the new tournament id. */
+/**
+ * Creates the trip-wide Tournament row. `courseOrder` is the course
+ * planned for each round, picked up front on the Format step (index i
+ * = round i+1's course id, or null for "not decided yet") — entirely
+ * optional, rounds can still pick their own course one at a time as
+ * usual if left empty. Admin-only. Returns the new tournament id.
+ */
 export async function createTournament(
   tripId: string,
   totalRounds: number,
-  usesHandicap: boolean
+  usesHandicap: boolean,
+  courseOrder?: (string | null)[]
 ): Promise<string> {
   const res = await fetch("/api/admin/tournament", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ tripId, totalRounds, usesHandicap }),
+    body: JSON.stringify({ tripId, totalRounds, usesHandicap, courseOrder }),
   });
   await throwOnError(res, "Couldn't create the tournament");
   const { id } = await res.json();

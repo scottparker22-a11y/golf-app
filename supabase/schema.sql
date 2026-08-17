@@ -51,6 +51,13 @@ create table tournaments (
   format text not null default 'stroke_play' check (format in ('stroke_play', 'stableford')),
   total_rounds int not null check (total_rounds > 0),
   uses_handicap boolean not null default false,
+  -- The course planned for each round, picked up front when the
+  -- tournament is created (see components/setup/FormatStep.tsx's
+  -- "Course order" section) — course_order[0] is round 1's course,
+  -- etc. Entirely optional: null, or individual elements null, just
+  -- means that round still picks its own course as usual on the
+  -- Course step. See lib/rounds.ts fetchActiveTournament.
+  course_order uuid[],
   created_at timestamptz default now()
 );
 
