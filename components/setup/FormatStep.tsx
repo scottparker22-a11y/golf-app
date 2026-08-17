@@ -152,10 +152,77 @@ function CourseOrderPicker({
   );
 }
 
+/**
+ * Confirm-then-delete affordance shared by the Tournament and Ryder
+ * Cup "already running" banners below — a real destructive action
+ * (removes the wrapper for the whole trip), so it's two taps, not one.
+ */
+function DeleteFormatButton({
+  label,
+  confirmText,
+  onDelete,
+}: {
+  label: string;
+  confirmText: string;
+  onDelete: () => Promise<void>;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    setError(null);
+    try {
+      await onDelete();
+      // No need to reset local state on success — the parent clears
+      // activeTournament/activeRyderCup, which unmounts this banner
+      // (and this button along with it) entirely.
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't delete");
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <div className="mt-2.5 pt-2.5 border-t border-[color:var(--border)]">
+      {error && (
+        <div className="mb-2 p-2 bg-flag/10 border border-flag/30 rounded-lg text-[11px] text-flag">{error}</div>
+      )}
+      {confirming ? (
+        <div className="flex flex-col gap-1.5">
+          <p className="text-[11px] text-chalk-dim leading-relaxed">{confirmText}</p>
+          <div className="flex gap-2">
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              className="flex-1 py-2 rounded-lg bg-flag text-white font-bold text-[11.5px] disabled:opacity-60"
+            >
+              {deleting ? "Deleting…" : "Confirm delete"}
+            </button>
+            <button
+              onClick={() => setConfirming(false)}
+              disabled={deleting}
+              className="flex-1 py-2 rounded-lg bg-surface-raised text-chalk-dim font-bold text-[11.5px]"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button onClick={() => setConfirming(true)} className="text-[11px] font-bold text-flag underline">
+          {label}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function FormatStep({
   roundType,
   setRoundType,
   activeTournament,
+  onDeleteTournament,
   tournamentTotalRounds,
   setTournamentTotalRounds,
   usesHandicap,
@@ -169,6 +236,7 @@ export default function FormatStep({
   setAssignment,
   ryderCupLocked,
   activeRyderCup,
+  onDeleteRyderCup,
   ryderCupTotalRounds,
   setRyderCupTotalRounds,
   ryderCupCourseOrder,
@@ -177,6 +245,7 @@ export default function FormatStep({
   roundType: "individual" | "tournament";
   setRoundType: (t: "individual" | "tournament") => void;
   activeTournament: ActiveTournament | null;
+  onDeleteTournament: () => Promise<void>;
   tournamentTotalRounds: number;
   setTournamentTotalRounds: (n: number) => void;
   usesHandicap: boolean;
@@ -191,6 +260,7 @@ export default function FormatStep({
   /** See components/setup/TeamsStep.tsx's `locked` prop. */
   ryderCupLocked: boolean;
   activeRyderCup: ActiveRyderCupTournament | null;
+  onDeleteRyderCup: () => Promise<void>;
   ryderCupTotalRounds: number;
   setRyderCupTotalRounds: (n: number) => void;
   ryderCupCourseOrder: (string | null)[];
@@ -257,6 +327,11 @@ export default function FormatStep({
               >
                 Don&apos;t count this round toward it
               </button>
+              <DeleteFormatButton
+                label="Delete this Tournament"
+                confirmText="This removes the Tournament for the whole trip — its rounds keep their scores, they just stop counting toward it. This can't be undone."
+                onDelete={onDeleteTournament}
+              />
             </>
           ) : (
             <>
@@ -347,6 +422,11 @@ export default function FormatStep({
               >
                 Don&apos;t count this round toward it
               </button>
+              <DeleteFormatButton
+                label="Delete this Ryder Cup"
+                confirmText="This removes the Ryder Cup for the whole trip — its rounds keep their scores, they just stop counting toward its Cup total. This can't be undone."
+                onDelete={onDeleteRyderCup}
+              />
             </>
           ) : (
             <>

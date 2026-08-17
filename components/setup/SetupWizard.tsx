@@ -9,6 +9,8 @@ import {
   createRyderCupTournament,
   createTournament,
   deletePlayer,
+  deleteRyderCupTournament,
+  deleteTournament,
   DEMO_TRIP_ID,
   fetchActiveRyderCupTournament,
   fetchActiveTournament,
@@ -205,6 +207,26 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
     setPlayers(players.filter(p => p.id !== player.id));
   };
 
+  // Deletes the trip-wide Tournament/Ryder Cup wrapper this round was
+  // about to join (see FormatStep.tsx's "Delete this Tournament/Ryder
+  // Cup" button) — its own rounds/scores are untouched server-side,
+  // this just clears local state so the Format tab falls back to
+  // "start a new one" instead of "joining" a wrapper that no longer
+  // exists.
+  const handleDeleteTournament = async () => {
+    if (!activeTournament) return;
+    await deleteTournament(activeTournament.id);
+    setActiveTournament(null);
+    setRoundType("individual");
+  };
+
+  const handleDeleteRyderCup = async () => {
+    if (!activeRyderCup) return;
+    await deleteRyderCupTournament(activeRyderCup.id);
+    setActiveRyderCup(null);
+    setRyderCup(prev => ({ ...prev, enabled: false }));
+  };
+
   const handleFinish = async () => {
     if (!courseId) {
       setFinishError("Pick a course on the first step.");
@@ -328,6 +350,7 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
           roundType={roundType}
           setRoundType={setRoundType}
           activeTournament={activeTournament}
+          onDeleteTournament={handleDeleteTournament}
           tournamentTotalRounds={tournamentTotalRounds}
           setTournamentTotalRounds={setTournamentTotalRounds}
           usesHandicap={usesHandicap}
@@ -341,6 +364,7 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
           setAssignment={setTeamAssignment}
           ryderCupLocked={ryderCupTeamsLocked}
           activeRyderCup={activeRyderCup}
+          onDeleteRyderCup={handleDeleteRyderCup}
           ryderCupTotalRounds={ryderCupTotalRounds}
           setRyderCupTotalRounds={setRyderCupTotalRounds}
           ryderCupCourseOrder={ryderCupCourseOrder}

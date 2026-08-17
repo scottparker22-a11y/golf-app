@@ -577,6 +577,18 @@ export async function createTournament(
 }
 
 /**
+ * Permanently deletes a Tournament wrapper for the whole trip — see
+ * components/setup/FormatStep.tsx's "Delete this Tournament" button.
+ * Any rounds that had joined it are untouched; they just stop
+ * counting toward it (their tournament_id gets cleared server-side).
+ * Admin-only.
+ */
+export async function deleteTournament(tournamentId: string): Promise<void> {
+  const res = await fetch(`/api/admin/tournament/${tournamentId}`, { method: "DELETE" });
+  await throwOnError(res, "Couldn't delete the tournament");
+}
+
+/**
  * Creates the trip-wide Ryder Cup row. `teamAssignment` is round 1's
  * team split (playerId -> "A" | "B") — saved so every later round
  * that joins this Cup starts locked to the same teams instead of
@@ -622,6 +634,17 @@ export async function updateRyderCupTournamentTeams(
     body: JSON.stringify({ teamAssignment }),
   });
   await throwOnError(res, "Couldn't update the Ryder Cup's teams");
+}
+
+/**
+ * Permanently deletes a Ryder Cup wrapper for the whole trip — see
+ * components/setup/FormatStep.tsx's "Delete this Ryder Cup" button.
+ * Any rounds/games that had joined it are untouched; they just stop
+ * counting toward its cross-round Cup score. Admin-only.
+ */
+export async function deleteRyderCupTournament(tournamentId: string): Promise<void> {
+  const res = await fetch(`/api/admin/ryder-cup-tournament/${tournamentId}`, { method: "DELETE" });
+  await throwOnError(res, "Couldn't delete the Ryder Cup");
 }
 
 /** One round's holes + player-keyed hole_scores — the minimal read a cross-round aggregate needs. */
