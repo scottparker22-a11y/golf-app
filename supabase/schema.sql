@@ -39,6 +39,21 @@ create table holes (
   unique (course_id, tee_name, number)
 );
 
+-- A Stroke Play/Stableford tournament spans multiple rounds of the
+-- trip — mirrors ryder_cup_tournaments below, which is the same idea
+-- for match play. total_rounds is informational only (shown as
+-- "Round N of total_rounds" in the Setup Wizard's Format step, see
+-- components/setup/FormatStep.tsx) — never a hard cap; a round can
+-- still join after that many have already been played.
+create table tournaments (
+  id uuid primary key default uuid_generate_v4(),
+  trip_id uuid references trips(id) on delete cascade,
+  format text not null default 'stroke_play' check (format in ('stroke_play', 'stableford')),
+  total_rounds int not null check (total_rounds > 0),
+  uses_handicap boolean not null default false,
+  created_at timestamptz default now()
+);
+
 -- One round = one day's play at one course, part of a trip.
 -- Course/hole data (par, stroke index) is autofilled from the golf
 -- course database (e.g. golfapi.io) once course + tee are picked —
@@ -50,6 +65,12 @@ create table rounds (
   tee_name text not null default 'default', -- which tee this round's group played, joins to holes.tee_name
   date date not null,
   tee_time time,
+  -- Nullable — a round only counts toward a Tournament if it opts in
+  -- (see components/setup/FormatStep.tsx). Independent of games.
+  -- tournament_id below, which is the Ryder Cup's own cross-round
+  -- link — a round can count toward the Tournament, the Ryder Cup,
+  -- both, or neither. See lib/scoring.ts calculateTournamentLeaderboard.
+  tournament_id uuid references tournaments(id),
   status text not null default 'upcoming' check (status in ('upcoming', 'in_progress', 'completed', 'archived')),
   -- `date` alone isn't unique enough to order by — several rounds can
   -- share the same calendar date (e.g. testing, or a multi-round day).

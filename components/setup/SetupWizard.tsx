@@ -6,14 +6,21 @@ import type { Player } from "@/lib/types";
 import type { SkinsGameConfig } from "@/lib/scoring";
 import {
   createRoundWithRoster,
+  createRyderCupTournament,
+  createTournament,
   deletePlayer,
   DEMO_TRIP_ID,
+  fetchActiveRyderCupTournament,
+  fetchActiveTournament,
   fetchTripRoster,
+  type ActiveRyderCupTournament,
+  type ActiveTournament,
   type RosterGroup,
   type RosterPlayer,
 } from "@/lib/rounds";
 import CourseStep from "./CourseStep";
 import PlayersStep from "./PlayersStep";
+import FormatStep from "./FormatStep";
 import TeamsStep, { DEFAULT_RYDER_CUP_CONFIG, type RyderCupWizardConfig } from "./TeamsStep";
 import FoursomesStep, { type Group } from "./FoursomesStep";
 import SkinsStep from "./SkinsStep";
@@ -36,13 +43,14 @@ function groupDisplayName(players: Player[], group: Group, index: number): strin
 }
 
 const TABS = [
-  { id: "course", label: "1 · Course" },
-  { id: "players", label: "2 · Players" },
-  { id: "teams", label: "3 · Ryder Cup" },
-  { id: "foursomes", label: "4 · Foursomes" },
-  { id: "skins", label: "5 · Skins" },
-  { id: "stats", label: "6 · Stats" },
-  { id: "scorer", label: "7 · Scorekeeper" },
+  { id: "format", label: "1 · Format" },
+  { id: "course", label: "2 · Course" },
+  { id: "players", label: "3 · Players" },
+  { id: "teams", label: "4 · Ryder Cup" },
+  { id: "foursomes", label: "5 · Foursomes" },
+  { id: "skins", label: "6 · Skins" },
+  { id: "stats", label: "7 · Stats" },
+  { id: "scorer", label: "8 · Scorekeeper" },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -52,7 +60,7 @@ const LAST_TAB: TabId = "scorer";
 export default function SetupWizard({ tripId }: { tripId: string }) {
   const router = useRouter();
   const [tripName, setTripName] = useState(`Trip ${tripId}`);
-  const [tab, setTab] = useState<TabId>("course");
+  const [tab, setTab] = useState<TabId>("format");
 
   const [courseId, setCourseId] = useState<string | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
@@ -62,6 +70,17 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
   const [ryderCup, setRyderCup] = useState<RyderCupWizardConfig>(DEFAULT_RYDER_CUP_CONFIG);
   const [trackStats, setTrackStats] = useState(false);
   const [scorekeepers, setScorekeepers] = useState<Record<string, string>>({});
+
+  // Multi-round Tournament + Ryder Cup — independent of each other
+  // (see components/setup/FormatStep.tsx). Detection defaults this
+  // round to joining whatever's already active for the trip; either
+  // can still be opted out of on the Format step.
+  const [roundType, setRoundType] = useState<"individual" | "tournament">("individual");
+  const [activeTournament, setActiveTournament] = useState<ActiveTournament | null>(null);
+  const [tournamentTotalRounds, setTournamentTotalRounds] = useState(3);
+  const [usesHandicap, setUsesHandicap] = useState(false);
+  const [activeRyderCup, setActiveRyderCup] = useState<ActiveRyderCupTournament | null>(null);
+  const [ryderCupTotalRounds, setRyderCupTotalRounds] = useState(3);
 
   const [roster, setRoster] = useState<Player[]>([]);
   const rosterIds = new Set(roster.map(r => r.id));
@@ -76,6 +95,25 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
       .then(setRoster)
       .catch(() => {
         // Non-fatal — Players step still works for typing names in.
+      });
+    // Auto-detect an already-running Tournament/Ryder Cup and default
+    // this round to joining it (confirmed with the user over asking
+    // fresh every round) — either can still be opted out of below.
+    fetchActiveTournament(DEMO_TRIP_ID)
+      .then(t => {
+        setActiveTournament(t);
+        if (t) setRoundType("tournament");
+      })
+      .catch(() => {
+        // Non-fatal — falls back to "no active tournament detected".
+      });
+    fetchActiveRyderCupTournament(DEMO_TRIP_ID)
+      .then(rc => {
+        setActiveRyderCup(rc);
+        if (rc) setRyderCup(prev => ({ ...prev, enabled: true }));
+      })
+      .catch(() => {
+        // Non-fatal — falls back to "no active Ryder Cup detected".
       });
   }, []);
 
@@ -110,6 +148,23 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
         strokePlayTeams: g.strokePlayTeams,
         pairings: g.pairings,
       }));
+
+      // Resolve to a concrete tournament id — join the one already
+      // detected for the trip, or create a fresh one (see
+      // components/setup/FormatStep.tsx for the join/create UI).
+      let tournamentId: string | null = null;
+      if (roundType === "tournament") {
+        tournamentId = activeTournament
+          ? activeTournament.id
+          : await createTournament(DEMO_TRIP_ID, tournamentTotalRounds, usesHandicap);
+      }
+      let ryderCupTournamentId: string | null = null;
+      if (ryderCup.enabled) {
+        ryderCupTournamentId = activeRyderCup
+          ? activeRyderCup.id
+          : await createRyderCupTournament(DEMO_TRIP_ID, ryderCup.teamAName, ryderCup.teamBName, ryderCupTotalRounds);
+      }
+
       const newRoundId = await createRoundWithRoster(
         DEMO_TRIP_ID,
         courseId,
@@ -117,7 +172,9 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
         rosterGroups,
         skinsConfig,
         ryderCup.enabled ? ryderCup : null,
-        trackStats
+        trackStats,
+        tournamentId,
+        ryderCupTournamentId
       );
       router.push(`/trip/${tripId}/round/${newRoundId}/scorecard`);
     } catch (e) {
@@ -156,6 +213,22 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
         ))}
       </div>
 
+      {tab === "format" && (
+        <FormatStep
+          roundType={roundType}
+          setRoundType={setRoundType}
+          activeTournament={activeTournament}
+          tournamentTotalRounds={tournamentTotalRounds}
+          setTournamentTotalRounds={setTournamentTotalRounds}
+          usesHandicap={usesHandicap}
+          setUsesHandicap={setUsesHandicap}
+          ryderCup={ryderCup}
+          setRyderCup={setRyderCup}
+          activeRyderCup={activeRyderCup}
+          ryderCupTotalRounds={ryderCupTotalRounds}
+          setRyderCupTotalRounds={setRyderCupTotalRounds}
+        />
+      )}
       {tab === "course" && <CourseStep courseId={courseId} setCourseId={setCourseId} />}
       {tab === "players" && (
         <PlayersStep

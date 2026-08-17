@@ -400,7 +400,8 @@ export function calculateRyderCup(scores: HoleScore[], holes: Hole[], config: Ry
 // strokes already entered on the Scorecard — there is no separate
 // Ryder Cup score entry, and nothing here is precomputed/stored.
 // (Unrelated to RyderCupConfig/calculateRyderCup above, which is a
-// stubbed multi-round tournament concept nothing in the UI uses.)
+// still-unused stub predating both this and the real multi-round
+// Tournament concept below — see calculateTournamentLeaderboard.)
 export type RyderCupMatchFormat = "singles" | "four_ball";
 export type RyderCupScoringBasis = "gross" | "net";
 
@@ -667,6 +668,97 @@ export function calculateIndividualLeaderboard(
       netRelativeToPar: netTotal - parForHoles,
     };
   }).sort((a, b) => a.relativeToPar - b.relativeToPar);
+}
+
+// ── TOURNAMENT LEADERBOARD (cross-round) ─────────────────────────
+// Same individually-recorded-scores convention as
+// calculateIndividualLeaderboard (team/scramble holes excluded), just
+// summed across every round the tournament has played so far instead
+// of one round's holes. A player who hasn't posted anything in a
+// given round gets `strokes: null` for it (shows as "—" rather than
+// 0) and is left out of the ranking entirely until they've played at
+// least one round — otherwise an untouched trip would show everyone
+// tied at even par in position 1.
+export type TournamentRoundInput = {
+  roundId: string;
+  holes: Hole[];
+  scores: HoleScore[];
+};
+
+export type TournamentPlayerRound = {
+  roundId: string;
+  strokes: number | null;
+};
+
+export type TournamentStanding = {
+  playerId: string;
+  name: string;
+  relativeToPar: number;
+  totalStrokes: number;
+  roundsPlayed: number;
+  rounds: TournamentPlayerRound[];
+  position: number; // 1-based, no gaps
+  positionLabel: string; // "1", "2", "T3", "T3", "T5"... — PGA-style, ties skip ahead
+};
+
+export function calculateTournamentLeaderboard(
+  roundsData: TournamentRoundInput[],
+  players: Player[],
+  courseHandicaps: Record<string, number> = {},
+  usesHandicap = false
+): TournamentStanding[] {
+  const totals = players.map(player => {
+    const courseHandicap = courseHandicaps[player.id] ?? 0;
+    let totalStrokes = 0;
+    let totalPar = 0;
+    let roundsPlayed = 0;
+
+    const rounds: TournamentPlayerRound[] = roundsData.map(rd => {
+      const individualScores = rd.scores.filter(s => s.playerId === player.id && !s.teamId);
+      if (individualScores.length === 0) return { roundId: rd.roundId, strokes: null };
+
+      let strokes = 0;
+      let par = 0;
+      for (const s of individualScores) {
+        const hole = rd.holes.find(h => h.number === s.holeNumber);
+        strokes += usesHandicap && hole ? s.strokes - strokesReceived(hole, courseHandicap) : s.strokes;
+        par += hole?.par ?? 0;
+      }
+      totalStrokes += strokes;
+      totalPar += par;
+      roundsPlayed += 1;
+      return { roundId: rd.roundId, strokes };
+    });
+
+    return {
+      playerId: player.id,
+      name: player.name,
+      relativeToPar: totalStrokes - totalPar,
+      totalStrokes,
+      roundsPlayed,
+      rounds,
+    };
+  });
+
+  const sorted = totals
+    .filter(p => p.roundsPlayed > 0)
+    .sort((a, b) => a.relativeToPar - b.relativeToPar);
+
+  return sorted.map((p, i) => {
+    const position = i + 1;
+    // Tied with the row directly above/below → same label as whoever
+    // is first in this tied block ("T3" for every player tied at 3rd).
+    const tied =
+      (i > 0 && sorted[i - 1].relativeToPar === p.relativeToPar) ||
+      (i < sorted.length - 1 && sorted[i + 1].relativeToPar === p.relativeToPar);
+    let firstTiedIndex = i;
+    while (firstTiedIndex > 0 && sorted[firstTiedIndex - 1].relativeToPar === p.relativeToPar) firstTiedIndex--;
+    return {
+      ...p,
+      position,
+      positionLabel: tied ? `T${firstTiedIndex + 1}` : String(position),
+    };
+  });
 }
 
 // ── ROUND STATS (Fairways Hit, GIR, Putts) — optional per round ──

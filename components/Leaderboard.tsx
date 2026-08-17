@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   approxCourseHandicap,
   calculateIndividualLeaderboard,
@@ -10,14 +10,34 @@ import {
   usesPairing,
 } from "@/lib/scoring";
 import { useLiveRound } from "@/lib/liveRound";
+import { fetchRyderCupTeamScoreForTrip, type RyderCupTripScore } from "@/lib/rounds";
+import RyderCupScoreBanner from "./RyderCupScoreBanner";
 
-export default function Leaderboard({ roundId }: { roundId: string }) {
+export default function Leaderboard({ roundId, tripId }: { roundId: string; tripId: string }) {
   const [view, setView] = useState<"team" | "individual">("individual");
   const [scoreMode, setScoreMode] = useState<"gross" | "net">("gross");
 
   // Live, shared with every other device watching this same round —
   // Supabase pushes any player's entered stroke here in real time.
   const { loading, error, players, holes, teams, holeScores } = useLiveRound(roundId);
+
+  // Trip-wide, fetch-once (not live) — see lib/rounds.ts
+  // fetchRyderCupTeamScoreForTrip. Shown above the Individual/Team
+  // toggle since the overall Cup score is what people check first.
+  const [ryderCupTripScore, setRyderCupTripScore] = useState<RyderCupTripScore | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetchRyderCupTeamScoreForTrip(tripId)
+      .then(score => {
+        if (!cancelled) setRyderCupTripScore(score);
+      })
+      .catch(() => {
+        // Non-fatal — the round's own scores/skins still render below.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tripId]);
 
   const courseHandicaps = useMemo(() => {
     const map: Record<string, number> = {};
@@ -116,6 +136,16 @@ export default function Leaderboard({ roundId }: { roundId: string }) {
 
   return (
     <div>
+      {ryderCupTripScore && (
+        <div className="mx-5 mt-4">
+          <RyderCupScoreBanner
+            teamAName={ryderCupTripScore.teamAName}
+            teamBName={ryderCupTripScore.teamBName}
+            teamScore={ryderCupTripScore.teamScore}
+          />
+        </div>
+      )}
+
       <div className="flex gap-1 mx-5 mt-4 p-1 bg-surface border border-[color:var(--border)] rounded-xl">
         <button
           onClick={() => setView("individual")}

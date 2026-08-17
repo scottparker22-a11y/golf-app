@@ -26,8 +26,16 @@
 // ─────────────────────────────────────────────────────────────
 
 import { supabase } from "./supabase";
-import type { GolfFormat, Player } from "./types";
-import type { SkinsGameConfig, RyderCupGameConfig } from "./scoring";
+import type { GolfFormat, Hole, HoleScore, Player } from "./types";
+import {
+  approxCourseHandicap,
+  calculateRyderCupMatch,
+  calculateRyderCupTeamScore,
+  type RyderCupGameConfig,
+  type RyderCupMatchResult,
+  type RyderCupTeamScore,
+  type SkinsGameConfig,
+} from "./scoring";
 
 /** Parses a /api/admin/* JSON error response into a thrown Error. */
 async function throwOnError(res: Response, fallback: string): Promise<void> {
@@ -165,21 +173,27 @@ export async function fetchRounds(tripId: string): Promise<RoundSummary[]> {
 }
 
 /**
- * Just status + track_stats for one round — used by TripNav to decide
- * whether the Stats tab should render at all (only once track_stats
- * is on for the round AND it's actually completed — see
- * components/TripNav.tsx and lib/scoring.ts calculateRoundStats).
+ * Just status + track_stats + tournament_id for one round — used by
+ * TripNav to decide whether the Stats tab should render at all (only
+ * once track_stats is on for the round AND it's actually completed —
+ * see components/TripNav.tsx and lib/scoring.ts calculateRoundStats)
+ * and whether the Tournament tab should (only when this round opted
+ * into a multi-round Tournament — see components/setup/FormatStep.tsx).
  */
 export async function fetchRoundStatus(
   roundId: string
-): Promise<{ status: RoundStatus; trackStats: boolean }> {
+): Promise<{ status: RoundStatus; trackStats: boolean; tournamentId: string | null }> {
   const { data, error } = await supabase
     .from("rounds")
-    .select("status, track_stats")
+    .select("status, track_stats, tournament_id")
     .eq("id", roundId)
     .single();
   if (error) throw new Error(`Couldn't load the round: ${error.message}`);
-  return { status: data.status as RoundStatus, trackStats: data.track_stats ?? false };
+  return {
+    status: data.status as RoundStatus,
+    trackStats: data.track_stats ?? false,
+    tournamentId: data.tournament_id ?? null,
+  };
 }
 
 /**
@@ -351,14 +365,254 @@ export async function createRoundWithRoster(
   groups: RosterGroup[],
   skinsConfig?: SkinsGameConfig | null,
   ryderCupConfig?: RyderCupGameConfig | null,
-  trackStats?: boolean
+  trackStats?: boolean,
+  tournamentId?: string | null,
+  ryderCupTournamentId?: string | null
 ): Promise<string> {
   const res = await fetch("/api/admin/round", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ tripId, courseId, players, groups, skinsConfig, ryderCupConfig, trackStats }),
+    body: JSON.stringify({
+      tripId,
+      courseId,
+      players,
+      groups,
+      skinsConfig,
+      ryderCupConfig,
+      trackStats,
+      tournamentId,
+      ryderCupTournamentId,
+    }),
   });
   await throwOnError(res, "Couldn't finish setup");
   const { roundId } = await res.json();
   return roundId;
+}
+
+// ── Multi-round Tournament + trip-wide Ryder Cup ─────────────────
+// A Tournament (Stroke Play across several rounds) and a Ryder Cup
+// (match play across several rounds) can each be active on a trip at
+// once, independently of one another — a round can opt into either,
+// both, or neither (see components/setup/FormatStep.tsx). Both of the
+// "active" fetches below just grab the trip's most recent row in
+// their table — a trip only ever runs one of each at a time in this
+// app, so "most recent" and "the active one" are the same thing.
+
+export type ActiveTournament = {
+  id: string;
+  totalRounds: number;
+  usesHandicap: boolean;
+  /** How many rounds have already opted into it — informational only, never a cap. */
+  roundsPlayed: number;
+};
+
+/** The trip's in-progress multi-round Tournament, if any — null if none has been started. */
+export async function fetchActiveTournament(tripId: string): Promise<ActiveTournament | null> {
+  const { data, error } = await supabase
+    .from("tournaments")
+    .select("id, total_rounds, uses_handicap")
+    .eq("trip_id", tripId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(`Couldn't check for an active tournament: ${error.message}`);
+  if (!data) return null;
+
+  const { count, error: countErr } = await supabase
+    .from("rounds")
+    .select("id", { count: "exact", head: true })
+    .eq("tournament_id", data.id);
+  if (countErr) throw new Error(`Couldn't check the tournament's rounds: ${countErr.message}`);
+
+  return {
+    id: data.id,
+    totalRounds: data.total_rounds,
+    usesHandicap: data.uses_handicap,
+    roundsPlayed: count ?? 0,
+  };
+}
+
+export type ActiveRyderCupTournament = {
+  id: string;
+  teamAName: string;
+  teamBName: string;
+  totalRounds: number;
+  /** How many rounds have already set up a Ryder Cup game linked to it. */
+  roundsPlayed: number;
+};
+
+/** The trip's in-progress multi-round Ryder Cup, if any — null if none has been started. */
+export async function fetchActiveRyderCupTournament(tripId: string): Promise<ActiveRyderCupTournament | null> {
+  const { data, error } = await supabase
+    .from("ryder_cup_tournaments")
+    .select("id, team_a_name, team_b_name, total_rounds")
+    .eq("trip_id", tripId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(`Couldn't check for an active Ryder Cup: ${error.message}`);
+  if (!data) return null;
+
+  const { count, error: countErr } = await supabase
+    .from("games")
+    .select("id", { count: "exact", head: true })
+    .eq("tournament_id", data.id)
+    .eq("type", "ryder_cup");
+  if (countErr) throw new Error(`Couldn't check the Ryder Cup's rounds: ${countErr.message}`);
+
+  return {
+    id: data.id,
+    teamAName: data.team_a_name,
+    teamBName: data.team_b_name,
+    totalRounds: data.total_rounds,
+    roundsPlayed: count ?? 0,
+  };
+}
+
+/** Creates the trip-wide Tournament row. Admin-only. Returns the new tournament id. */
+export async function createTournament(
+  tripId: string,
+  totalRounds: number,
+  usesHandicap: boolean
+): Promise<string> {
+  const res = await fetch("/api/admin/tournament", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tripId, totalRounds, usesHandicap }),
+  });
+  await throwOnError(res, "Couldn't create the tournament");
+  const { id } = await res.json();
+  return id;
+}
+
+/** Creates the trip-wide Ryder Cup row. Admin-only. Returns the new tournament id. */
+export async function createRyderCupTournament(
+  tripId: string,
+  teamAName: string,
+  teamBName: string,
+  totalRounds: number
+): Promise<string> {
+  const res = await fetch("/api/admin/ryder-cup-tournament", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tripId, teamAName, teamBName, totalRounds }),
+  });
+  await throwOnError(res, "Couldn't create the Ryder Cup");
+  const { id } = await res.json();
+  return id;
+}
+
+/** One round's holes + player-keyed hole_scores — the minimal read a cross-round aggregate needs. */
+async function fetchRoundHolesAndScoresForCup(roundId: string): Promise<{ holes: Hole[]; scores: HoleScore[] }> {
+  const { data: round, error: roundErr } = await supabase
+    .from("rounds")
+    .select("course_id, tee_name")
+    .eq("id", roundId)
+    .single();
+  if (roundErr || !round) throw new Error(roundErr?.message ?? "Round not found");
+
+  const [holesRes, groupsRes] = await Promise.all([
+    supabase
+      .from("holes")
+      .select("number, par, stroke_index")
+      .eq("course_id", round.course_id)
+      .eq("tee_name", round.tee_name)
+      .order("number"),
+    supabase.from("groups").select("id").eq("round_id", roundId),
+  ]);
+  if (holesRes.error) throw new Error(`Couldn't load holes: ${holesRes.error.message}`);
+  if (groupsRes.error) throw new Error(`Couldn't load groups: ${groupsRes.error.message}`);
+
+  const holes: Hole[] = (holesRes.data ?? []).map(h => ({
+    number: h.number,
+    par: h.par,
+    strokeIndex: h.stroke_index,
+  }));
+
+  const groupIds = (groupsRes.data ?? []).map(g => g.id);
+  if (groupIds.length === 0) return { holes, scores: [] };
+
+  const { data: scoresData, error: scoresErr } = await supabase
+    .from("hole_scores")
+    .select("group_id, player_id, hole_number, strokes")
+    .in("group_id", groupIds);
+  if (scoresErr) throw new Error(`Couldn't load scores: ${scoresErr.message}`);
+
+  const scores: HoleScore[] = (scoresData ?? []).map(r => ({
+    groupId: r.group_id,
+    playerId: r.player_id,
+    holeNumber: r.hole_number,
+    strokes: r.strokes,
+  }));
+
+  return { holes, scores };
+}
+
+export type RyderCupTripScore = {
+  teamAName: string;
+  teamBName: string;
+  teamScore: RyderCupTeamScore;
+};
+
+/**
+ * The trip's overall Ryder Cup score — near the top of Leaderboard.tsx
+ * and TournamentLeaderboard.tsx (see components/RyderCupScoreBanner.tsx),
+ * since it's the number people care about most on a multi-day Cup.
+ * Aggregates every match across every round linked to the trip's
+ * active multi-round Ryder Cup, if one exists; otherwise falls back
+ * to whatever single-round Ryder Cup game is on the trip's current
+ * round; otherwise null (no Ryder Cup being played at all).
+ */
+export async function fetchRyderCupTeamScoreForTrip(tripId: string): Promise<RyderCupTripScore | null> {
+  const activeCup = await fetchActiveRyderCupTournament(tripId);
+
+  if (activeCup) {
+    const { data: games, error } = await supabase
+      .from("games")
+      .select("round_id, config")
+      .eq("tournament_id", activeCup.id)
+      .eq("type", "ryder_cup");
+    if (error) throw new Error(`Couldn't load the Ryder Cup's matches: ${error.message}`);
+
+    if (games && games.length > 0) {
+      const roster = await fetchTripRoster(tripId);
+      const courseHandicaps: Record<string, number> = {};
+      for (const p of roster) courseHandicaps[p.id] = approxCourseHandicap(p.handicapIndex);
+
+      const allResults: RyderCupMatchResult[] = [];
+      for (const g of games as { round_id: string; config: RyderCupGameConfig }[]) {
+        const { holes, scores } = await fetchRoundHolesAndScoresForCup(g.round_id);
+        for (const match of g.config.matches) {
+          allResults.push(calculateRyderCupMatch(scores, holes, match, courseHandicaps, g.config.defaultPointValue));
+        }
+      }
+      if (allResults.length > 0) {
+        return {
+          teamAName: activeCup.teamAName,
+          teamBName: activeCup.teamBName,
+          teamScore: calculateRyderCupTeamScore(allResults),
+        };
+      }
+    }
+  }
+
+  // Fall back to a plain single-round Ryder Cup on the trip's current round.
+  const currentRoundId = await fetchCurrentRoundId(tripId);
+  if (!currentRoundId) return null;
+  const game = await fetchRyderCupGame(currentRoundId);
+  if (!game || game.config.matches.length === 0) return null;
+
+  const { holes, scores } = await fetchRoundHolesAndScoresForCup(currentRoundId);
+  const roster = await fetchTripRoster(tripId);
+  const courseHandicaps: Record<string, number> = {};
+  for (const p of roster) courseHandicaps[p.id] = approxCourseHandicap(p.handicapIndex);
+
+  const results = game.config.matches.map(m =>
+    calculateRyderCupMatch(scores, holes, m, courseHandicaps, game.config.defaultPointValue)
+  );
+  return {
+    teamAName: game.config.teamAName,
+    teamBName: game.config.teamBName,
+    teamScore: calculateRyderCupTeamScore(results),
+  };
 }

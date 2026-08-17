@@ -34,7 +34,7 @@ export default function RoundLeaderboardPage({
 
       <TripNav tripId={params.tripId} roundId={params.roundId} />
 
-      <Leaderboard roundId={params.roundId} />
+      <Leaderboard roundId={params.roundId} tripId={params.tripId} />
 
       <GameChips skinsPot={skinsPot} />
     </main>

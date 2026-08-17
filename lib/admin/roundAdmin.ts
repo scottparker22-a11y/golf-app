@@ -18,11 +18,16 @@ async function createSkinsGame(admin: SupabaseClient, roundId: string, config: S
   if (error) throw new Error(`Couldn't save the skins game: ${error.message}`);
 }
 
-async function createRyderCupGame(admin: SupabaseClient, roundId: string, config: RyderCupGameConfig): Promise<void> {
+async function createRyderCupGame(
+  admin: SupabaseClient,
+  roundId: string,
+  config: RyderCupGameConfig,
+  tournamentId?: string | null
+): Promise<void> {
   if (config.matches.length === 0) return;
   const { error } = await admin
     .from("games")
-    .insert({ round_id: roundId, type: "ryder_cup", name: "Ryder Cup", config });
+    .insert({ round_id: roundId, type: "ryder_cup", name: "Ryder Cup", config, tournament_id: tournamentId ?? null });
   if (error) throw new Error(`Couldn't save the Ryder Cup game: ${error.message}`);
 }
 
@@ -34,7 +39,9 @@ export async function runCreateRoundWithRoster(
   groups: RosterGroup[],
   skinsConfig?: SkinsGameConfig | null,
   ryderCupConfig?: RyderCupGameConfig | null,
-  trackStats?: boolean
+  trackStats?: boolean,
+  tournamentId?: string | null,
+  ryderCupTournamentId?: string | null
 ): Promise<string> {
   const namedPlayers = players.filter(p => p.name.trim().length > 0);
   if (namedPlayers.length === 0) {
@@ -81,6 +88,7 @@ export async function runCreateRoundWithRoster(
       date: new Date().toISOString().slice(0, 10),
       status: "in_progress",
       track_stats: !!trackStats,
+      tournament_id: tournamentId ?? null,
     })
     .select("id")
     .single();
@@ -147,7 +155,7 @@ export async function runCreateRoundWithRoster(
         teamBPlayerIds: m.teamBPlayerIds.map(lid => idMap.get(lid) ?? lid),
       })),
     };
-    await createRyderCupGame(admin, newRound.id, remapped);
+    await createRyderCupGame(admin, newRound.id, remapped, ryderCupTournamentId);
   }
 
   return newRound.id;

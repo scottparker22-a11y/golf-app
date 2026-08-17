@@ -139,27 +139,12 @@ export default function TeamsStep({
         ))}
       </div>
 
-      <button
-        onClick={() => setRyderCup({ ...ryderCup, enabled: !ryderCup.enabled })}
-        className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left mb-4 ${
-          ryderCup.enabled ? "bg-turf/15 border-turf" : "bg-surface border-[color:var(--border)]"
-        }`}
-      >
-        <span
-          className={`w-[18px] h-[18px] rounded-md border-2 flex-shrink-0 flex items-center justify-center text-[11px] font-bold ${
-            ryderCup.enabled ? "bg-turf border-turf text-fairway-950" : "border-chalk-dim"
-          }`}
-        >
-          {ryderCup.enabled ? "✓" : ""}
-        </span>
-        <span>
-          <div className="text-[13.5px] font-semibold">Enable Ryder Cup Style for this round</div>
-          <div className="text-[11px] text-chalk-dim">
-            Adds a live team match-play leaderboard, built from the same scores everyone enters on the
-            Scorecard — nothing extra to enter.
-          </div>
-        </span>
-      </button>
+      {!ryderCup.enabled && (
+        <div className="mb-4 p-3.5 bg-surface border border-[color:var(--border)] rounded-xl text-[12.5px] text-chalk-dim leading-relaxed">
+          Ryder Cup Style isn&apos;t on for this round — enable &quot;Also play Ryder Cup&quot; on the Format
+          step first, then come back here to build teams and matches.
+        </div>
+      )}
 
       {ryderCup.enabled && (
         <>
