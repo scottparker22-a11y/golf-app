@@ -17,12 +17,17 @@ function money(n: number) {
 function holeStatusLabel(
   gross: SkinsHoleResult | undefined,
   net: SkinsHoleResult | undefined,
-  nameFor: (id: string) => string
+  nameFor: (id: string) => string,
+  rollover: boolean
 ) {
   const line = (r: SkinsHoleResult | undefined, label: string) => {
     if (!r) return null;
     if (r.status === "pending") return `${label}: in progress`;
-    if (r.status === "tied") return `${label}: tied — carried over`;
+    // "Carried over" only actually happens when the round has rollover
+    // on (see lib/scoring.ts's carryover config) — with it off, a tie
+    // just loses the skin instead, so the label shouldn't claim it
+    // carried anywhere.
+    if (r.status === "tied") return `${label}: tied${rollover ? " — carried over" : ""}`;
     return `${label}: won by ${nameFor(r.winnerId!)}`;
   };
   return [line(gross, "Gross"), line(net, "Net")].filter(Boolean).join(" · ");
@@ -154,7 +159,7 @@ export default function SkinsBoard({ roundId }: { roundId: string }) {
             <div key={hole.number} className="flex items-center gap-3 px-3.5 py-2.5">
               <div className="w-6 text-center font-mono font-bold text-chalk-dim flex-shrink-0">{hole.number}</div>
               <div className={`flex-1 min-w-0 text-[12px] ${pending ? "text-chalk-dim" : "text-chalk"}`}>
-                {holeStatusLabel(g, n, nameFor) || "Not tracked"}
+                {holeStatusLabel(g, n, nameFor, config.rollover) || "Not tracked"}
               </div>
               <div className="font-mono text-[12px] font-semibold text-chalk-dim flex-shrink-0">{value}</div>
             </div>
