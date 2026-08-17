@@ -1,23 +1,21 @@
 "use client";
 
 // First step of the wizard — picks how this round fits into the trip.
-// A round can count toward a multi-round Tournament (Stroke Play, see
-// lib/scoring.ts calculateTournamentLeaderboard), a Ryder Cup (match
-// play, see components/RyderCupBoard.tsx), both, or neither — they're
-// independent toggles. When SetupWizard detects either is already
-// running for this trip (see lib/rounds.ts
-// fetchActiveTournament/fetchActiveRyderCupTournament), it defaults
-// this round to joining it; either can still be opted out of here.
+// Individual Round / Tournament / Ryder Cup is a single choice per
+// round (not independent toggles) — a round counts toward at most one
+// of them. When SetupWizard detects a Tournament and/or a Ryder Cup
+// already running for this trip (see lib/rounds.ts
+// fetchActiveTournament/fetchActiveRyderCupTournament — a trip can
+// have both going at once, rounds just each pick one), it defaults
+// this round to joining whichever it finds (Tournament taking
+// priority if both exist); either can still be opted out of here, or
+// deleted outright.
 //
-// Everything Ryder Cup — the round-count/join detection, course order,
-// and team split + match builder (components/setup/TeamsStep.tsx) —
-// lives entirely on this tab now; there's no separate Ryder Cup tab.
-// The team/match editor only makes sense once there's a roster to
-// split, so it's hidden with a hint until players.length > 0 (Players
-// is a later tab — this one's still first since picking the round's
-// format is the natural first decision).
+// Ryder Cup team-splitting + match-building (components/setup/TeamsStep.tsx)
+// lives on its own tab (see SetupWizard.tsx), shown only while
+// roundType === "ryder_cup" — this tab only handles round count,
+// join detection, and course order, same as the Tournament block.
 import { useEffect, useState } from "react";
-import type { Player } from "@/lib/types";
 import {
   createCourse,
   fetchCourses,
@@ -25,7 +23,7 @@ import {
   type ActiveTournament,
   type CourseSummary,
 } from "@/lib/rounds";
-import TeamsStep, { type RyderCupWizardConfig } from "./TeamsStep";
+import type { RoundType } from "./SetupWizard";
 
 /**
  * The course planned for each round of a multi-round format, picked
@@ -218,6 +216,12 @@ function DeleteFormatButton({
   );
 }
 
+const ROUND_TYPE_LABELS: Record<RoundType, string> = {
+  individual: "Individual Round",
+  tournament: "Tournament",
+  ryder_cup: "Ryder Cup",
+};
+
 export default function FormatStep({
   roundType,
   setRoundType,
@@ -229,12 +233,6 @@ export default function FormatStep({
   setUsesHandicap,
   tournamentCourseOrder,
   setTournamentCourseOrderAt,
-  players,
-  ryderCup,
-  setRyderCup,
-  assignment,
-  setAssignment,
-  ryderCupLocked,
   activeRyderCup,
   onDeleteRyderCup,
   ryderCupTotalRounds,
@@ -242,8 +240,8 @@ export default function FormatStep({
   ryderCupCourseOrder,
   setRyderCupCourseOrderAt,
 }: {
-  roundType: "individual" | "tournament";
-  setRoundType: (t: "individual" | "tournament") => void;
+  roundType: RoundType;
+  setRoundType: (t: RoundType) => void;
   activeTournament: ActiveTournament | null;
   onDeleteTournament: () => Promise<void>;
   tournamentTotalRounds: number;
@@ -252,13 +250,6 @@ export default function FormatStep({
   setUsesHandicap: (v: boolean) => void;
   tournamentCourseOrder: (string | null)[];
   setTournamentCourseOrderAt: (index: number, courseId: string | null) => void;
-  players: Player[];
-  ryderCup: RyderCupWizardConfig;
-  setRyderCup: (r: RyderCupWizardConfig) => void;
-  assignment: Record<string, "A" | "B">;
-  setAssignment: (a: Record<string, "A" | "B">) => void;
-  /** See components/setup/TeamsStep.tsx's `locked` prop. */
-  ryderCupLocked: boolean;
   activeRyderCup: ActiveRyderCupTournament | null;
   onDeleteRyderCup: () => Promise<void>;
   ryderCupTotalRounds: number;
@@ -283,8 +274,9 @@ export default function FormatStep({
   return (
     <div className="px-5 pt-4">
       <p className="text-[13px] text-chalk-dim leading-relaxed mb-4">
-        Pick how this round fits into the trip. It can count toward a multi-round Tournament, a Ryder
-        Cup, both, or neither.
+        Pick how this round fits into the trip — an Individual Round, part of a multi-round
+        Tournament, or a Ryder Cup session. Pick one; a trip can run a Tournament and a Ryder Cup at
+        the same time, but each round only counts toward one of them.
       </p>
 
       {courseError && (
@@ -295,23 +287,23 @@ export default function FormatStep({
 
       <div className="text-[11px] font-semibold uppercase tracking-wide text-chalk-dim mb-2">Round type</div>
       <div className="flex gap-2 mb-3">
-        {(["individual", "tournament"] as const).map(t => (
+        {(["individual", "tournament", "ryder_cup"] as const).map(t => (
           <button
             key={t}
             onClick={() => setRoundType(t)}
-            className={`flex-1 text-[13px] font-bold py-2.5 rounded-xl border ${
+            className={`flex-1 text-[12.5px] font-bold py-2.5 rounded-xl border ${
               roundType === t
                 ? "bg-turf text-fairway-950 border-turf"
                 : "bg-surface text-chalk-dim border-[color:var(--border)]"
             }`}
           >
-            {t === "individual" ? "Individual Round" : "Tournament"}
+            {ROUND_TYPE_LABELS[t]}
           </button>
         ))}
       </div>
 
       {roundType === "tournament" && (
-        <div className="mb-5 p-3.5 bg-surface border border-[color:var(--border)] rounded-xl">
+        <div className="p-3.5 bg-surface border border-[color:var(--border)] rounded-xl">
           {activeTournament ? (
             <>
               <div className="text-[13.5px] font-semibold mb-1">
@@ -380,32 +372,7 @@ export default function FormatStep({
         </div>
       )}
 
-      <div className="text-[11px] font-semibold uppercase tracking-wide text-chalk-dim mb-2">
-        Ryder Cup — independent of the Tournament above
-      </div>
-      <button
-        onClick={() => setRyderCup({ ...ryderCup, enabled: !ryderCup.enabled })}
-        className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left mb-3 ${
-          ryderCup.enabled ? "bg-turf/15 border-turf" : "bg-surface border-[color:var(--border)]"
-        }`}
-      >
-        <span
-          className={`w-[18px] h-[18px] rounded-md border-2 flex-shrink-0 flex items-center justify-center text-[11px] font-bold ${
-            ryderCup.enabled ? "bg-turf border-turf text-fairway-950" : "border-chalk-dim"
-          }`}
-        >
-          {ryderCup.enabled ? "✓" : ""}
-        </span>
-        <span>
-          <div className="text-[13.5px] font-semibold">Also play Ryder Cup</div>
-          <div className="text-[11px] text-chalk-dim">
-            Team match play, built from the same scores everyone enters on the Scorecard. Pick
-            courses, teams, and matches right here.
-          </div>
-        </span>
-      </button>
-
-      {ryderCup.enabled && (
+      {roundType === "ryder_cup" && (
         <div className="p-3.5 bg-surface border border-[color:var(--border)] rounded-xl">
           {activeRyderCup ? (
             <>
@@ -414,10 +381,11 @@ export default function FormatStep({
               </div>
               <p className="text-[11px] text-chalk-dim leading-relaxed mb-2.5">
                 A Ryder Cup ({activeRyderCup.teamAName} vs {activeRyderCup.teamBName}) is already running
-                for this trip — this round&apos;s matches will add to its overall score.
+                for this trip — this round&apos;s matches will add to its overall score. Pick teams and
+                matches on the Ryder Cup step.
               </p>
               <button
-                onClick={() => setRyderCup({ ...ryderCup, enabled: false })}
+                onClick={() => setRoundType("individual")}
                 className="text-[11px] font-bold text-chalk-dim underline"
               >
                 Don&apos;t count this round toward it
@@ -443,6 +411,9 @@ export default function FormatStep({
                   className="w-16 bg-surface-raised border border-[color:var(--border-strong)] rounded-lg px-2 py-1.5 text-sm font-mono"
                 />
               </div>
+              <p className="text-[11px] text-chalk-dim leading-relaxed mb-2.5">
+                Team names, the team split, and matches are set up on the Ryder Cup step next.
+              </p>
 
               <CourseOrderPicker
                 totalRounds={ryderCupTotalRounds}
@@ -453,24 +424,6 @@ export default function FormatStep({
               />
             </>
           )}
-
-          <div className="mt-3.5 pt-3.5 border-t border-[color:var(--border)]">
-            {players.length === 0 ? (
-              <p className="text-[12px] text-chalk-dim leading-relaxed">
-                Add players on the Players step, then come back here to split them into teams and
-                build matches.
-              </p>
-            ) : (
-              <TeamsStep
-                players={players}
-                assignment={assignment}
-                setAssignment={setAssignment}
-                ryderCup={ryderCup}
-                setRyderCup={setRyderCup}
-                locked={ryderCupLocked}
-              />
-            )}
-          </div>
         </div>
       )}
     </div>

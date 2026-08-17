@@ -35,11 +35,10 @@ function blankMatch(matchNumber: number): RyderCupMatchConfig {
   };
 }
 
-// Embedded inside components/setup/FormatStep.tsx's "Also play Ryder
-// Cup" section (there's no separate Ryder Cup tab anymore) — this
-// component owns no outer page padding of its own and assumes
-// ryderCup.enabled is already true, since the caller only renders it
-// in that state.
+// Its own tab in the wizard (see SetupWizard.tsx), shown only while
+// roundType === "ryder_cup" — Format.tsx just handles round
+// count/join-detection/course order; this is where teams and matches
+// actually get built.
 export default function TeamsStep({
   players,
   assignment,
@@ -120,7 +119,7 @@ export default function TeamsStep({
   };
 
   return (
-    <div>
+    <div className="px-5 pt-4">
       <p className="text-[13px] text-chalk-dim leading-relaxed mb-4">
         {effectiveLocked
           ? "Teams for this Ryder Cup were set on round 1 and carry over automatically — the same players stay on the same side all tournament."

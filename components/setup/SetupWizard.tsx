@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Player } from "@/lib/types";
 import type { SkinsGameConfig } from "@/lib/scoring";
@@ -25,12 +25,18 @@ import {
 import CourseStep from "./CourseStep";
 import PlayersStep from "./PlayersStep";
 import FormatStep from "./FormatStep";
-import { DEFAULT_RYDER_CUP_CONFIG, type RyderCupWizardConfig } from "./TeamsStep";
+import TeamsStep, { DEFAULT_RYDER_CUP_CONFIG, type RyderCupWizardConfig } from "./TeamsStep";
 import FoursomesStep, { type Group } from "./FoursomesStep";
 import SkinsStep from "./SkinsStep";
 import RoundsStep from "./RoundsStep";
 import ScorekeeperStep from "./ScorekeeperStep";
 import PageNav from "@/components/PageNav";
+
+// A single choice per round — not independent toggles. A trip can
+// still have a Tournament and a Ryder Cup both running at once (see
+// lib/rounds.ts fetchActiveTournament/fetchActiveRyderCupTournament);
+// this just decides which one (if either) THIS round counts toward.
+export type RoundType = "individual" | "tournament" | "ryder_cup";
 
 const DEFAULT_SKINS_CONFIG: SkinsGameConfig = {
   gross: false,
@@ -46,17 +52,22 @@ function groupDisplayName(players: Player[], group: Group, index: number): strin
   return names.length > 0 ? names.join(" & ") : `Group ${index + 1}`;
 }
 
-const TABS = [
-  { id: "format", label: "1 · Format" },
-  { id: "course", label: "2 · Course" },
-  { id: "players", label: "3 · Players" },
-  { id: "foursomes", label: "4 · Foursomes" },
-  { id: "skins", label: "5 · Skins" },
-  { id: "stats", label: "6 · Stats" },
-  { id: "scorer", label: "7 · Scorekeeper" },
+// "Ryder Cup" (id: "teams", the wizard-internal name from way back —
+// kept so TeamsStep.tsx's existing prop wiring didn't need renaming)
+// only shows up while roundType === "ryder_cup" — see the TABS
+// computation below, which also renumbers every label to match.
+const BASE_TABS = [
+  { id: "format", name: "Format" },
+  { id: "course", name: "Course" },
+  { id: "players", name: "Players" },
+  { id: "teams", name: "Ryder Cup" },
+  { id: "foursomes", name: "Foursomes" },
+  { id: "skins", name: "Skins" },
+  { id: "stats", name: "Stats" },
+  { id: "scorer", name: "Scorekeeper" },
 ] as const;
 
-type TabId = (typeof TABS)[number]["id"];
+type TabId = (typeof BASE_TABS)[number]["id"];
 
 const LAST_TAB: TabId = "scorer";
 
@@ -74,11 +85,10 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
   const [trackStats, setTrackStats] = useState(false);
   const [scorekeepers, setScorekeepers] = useState<Record<string, string>>({});
 
-  // Multi-round Tournament + Ryder Cup — independent of each other
-  // (see components/setup/FormatStep.tsx). Detection defaults this
-  // round to joining whatever's already active for the trip; either
-  // can still be opted out of on the Format step.
-  const [roundType, setRoundType] = useState<"individual" | "tournament">("individual");
+  // Multi-round Tournament + Ryder Cup (see components/setup/FormatStep.tsx).
+  // Detection defaults this round to joining whatever's already active
+  // for the trip; can still be changed or deleted on the Format step.
+  const [roundType, setRoundType] = useState<RoundType>("individual");
   const [activeTournament, setActiveTournament] = useState<ActiveTournament | null>(null);
   const [tournamentTotalRounds, setTournamentTotalRounds] = useState(4);
   const [usesHandicap, setUsesHandicap] = useState(false);
@@ -91,9 +101,7 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
   const [tournamentCourseOrder, setTournamentCourseOrderState] = useState<(string | null)[]>([]);
   const [activeRyderCup, setActiveRyderCup] = useState<ActiveRyderCupTournament | null>(null);
   const [ryderCupTotalRounds, setRyderCupTotalRounds] = useState(4);
-  // Same idea as tournamentCourseOrder above, for a brand-new Ryder
-  // Cup — see FormatStep.tsx's "Course order" section (now shared by
-  // both the Tournament and Ryder Cup blocks on that one tab).
+  // Same idea as tournamentCourseOrder above, for a brand-new Ryder Cup.
   const [ryderCupCourseOrder, setRyderCupCourseOrderState] = useState<(string | null)[]>([]);
 
   const [roster, setRoster] = useState<Player[]>([]);
@@ -121,48 +129,43 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
       .catch(() => {
         // Non-fatal — the "use last round's players" shortcut just won't show.
       });
-    // Auto-detect an already-running Tournament/Ryder Cup and default
-    // this round to joining it (confirmed with the user over asking
-    // fresh every round) — either can still be opted out of below.
-    fetchActiveTournament(DEMO_TRIP_ID)
-      .then(t => {
-        setActiveTournament(t);
-        if (t) {
-          setRoundType("tournament");
-          // This round's slot in the tournament's pre-planned course
-          // order (see FormatStep.tsx) — auto-fill the Course step
-          // instead of asking again, same as the round-type/Ryder Cup
-          // auto-join above. Leaves courseId alone if that slot was
-          // never set (null) or the tournament's already past it.
-          const nextCourseId = t.courseOrder[t.roundsPlayed];
-          if (nextCourseId) setCourseId(nextCourseId);
-        }
-      })
-      .catch(() => {
-        // Non-fatal — falls back to "no active tournament detected".
-      });
-    fetchActiveRyderCupTournament(DEMO_TRIP_ID)
-      .then(rc => {
-        setActiveRyderCup(rc);
-        if (rc) {
-          setRyderCup(prev => ({ ...prev, enabled: true }));
-          // Carry over round 1's team split so this round starts
-          // locked to the same teams instead of re-splitting the
-          // roster (see components/setup/TeamsStep.tsx). Anyone new
-          // to the trip just won't have an entry yet — TeamsStep's
-          // "Unassigned" section handles them.
-          if (Object.keys(rc.teamAssignment).length > 0) {
-            setTeamAssignment(prev => ({ ...rc.teamAssignment, ...prev }));
-          }
-          // This round's slot in the Cup's pre-planned course order —
-          // same auto-fill as the Tournament's above.
-          const nextCourseId = rc.courseOrder[rc.roundsPlayed];
-          if (nextCourseId) setCourseId(nextCourseId);
-        }
-      })
-      .catch(() => {
-        // Non-fatal — falls back to "no active Ryder Cup detected".
-      });
+
+    (async () => {
+      // A trip can have a Tournament AND a Ryder Cup both active at
+      // once (each round just picks at most one to count toward), so
+      // both get checked independently.
+      const [t, rc] = await Promise.all([
+        fetchActiveTournament(DEMO_TRIP_ID).catch(() => null),
+        fetchActiveRyderCupTournament(DEMO_TRIP_ID).catch(() => null),
+      ]);
+
+      setActiveTournament(t);
+      setActiveRyderCup(rc);
+
+      // Prefill round 1's team split regardless of which format ends
+      // up the default below — if the user manually switches to
+      // Ryder Cup on the Format step, the locked teams should already
+      // be there (see components/setup/TeamsStep.tsx).
+      if (rc && Object.keys(rc.teamAssignment).length > 0) {
+        setTeamAssignment(prev => ({ ...rc.teamAssignment, ...prev }));
+      }
+
+      // Auto-detect and default this round to joining whichever's
+      // active (confirmed with the user over asking fresh every
+      // round). If a trip somehow has both going, Tournament wins the
+      // default — arbitrary but deterministic; Ryder Cup is still one
+      // tap away on the Format step.
+      if (t) {
+        setRoundType("tournament");
+        const nextCourseId = t.courseOrder[t.roundsPlayed];
+        if (nextCourseId) setCourseId(nextCourseId);
+      } else if (rc) {
+        setRoundType("ryder_cup");
+        setRyderCup(prev => ({ ...prev, enabled: true }));
+        const nextCourseId = rc.courseOrder[rc.roundsPlayed];
+        if (nextCourseId) setCourseId(nextCourseId);
+      }
+    })();
   }, []);
 
   // Locked once the active Ryder Cup already has a saved team split —
@@ -170,8 +173,34 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
   // genuinely stay the same all tournament, not just "usually".
   const ryderCupTeamsLocked = !!activeRyderCup && Object.keys(activeRyderCup.teamAssignment).length > 0;
 
+  // Ryder Cup's tab only shows while it's the selected round type —
+  // relabels every tab's number to match (so it's always "N · Name",
+  // never a gap).
+  const TABS = useMemo(
+    () =>
+      BASE_TABS.filter(t => t.id !== "teams" || roundType === "ryder_cup").map((t, i) => ({
+        id: t.id,
+        label: `${i + 1} · ${t.name}`,
+      })),
+    [roundType]
+  );
   const tabIndex = TABS.findIndex(t => t.id === tab);
   const isLastTab = tab === LAST_TAB;
+
+  // If the Ryder Cup tab was open and the round type changes away
+  // from it (its own tab disappears from TABS above), don't strand
+  // the user on a tab that's no longer in the bar.
+  useEffect(() => {
+    if (roundType !== "ryder_cup" && tab === "teams") setTab("format");
+  }, [roundType, tab]);
+
+  // Individual Round / Tournament / Ryder Cup is a single choice —
+  // picking one keeps ryderCup.enabled in sync (handleFinish and
+  // TeamsStep both key off that flag) without a separate toggle.
+  const handleSetRoundType = (t: RoundType) => {
+    setRoundType(t);
+    setRyderCup(prev => ({ ...prev, enabled: t === "ryder_cup" }));
+  };
 
   // Round 1 of a brand-new tournament's course order IS this round's
   // course — keep them in sync so picking it here also fills in the
@@ -186,11 +215,7 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
     if (index === 0) setCourseId(id);
   };
 
-  // Same idea, for a brand-new Ryder Cup's course order. If both a
-  // Tournament and a Ryder Cup are being created for the same round
-  // (independent, per FormatStep.tsx) and both set round 1's course,
-  // whichever was picked more recently wins — an edge case worth
-  // noting, not worth blocking on.
+  // Same idea, for a brand-new Ryder Cup's course order.
   const setRyderCupCourseOrderAt = (index: number, id: string | null) => {
     setRyderCupCourseOrderState(prev => {
       const next = [...prev];
@@ -209,10 +234,11 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
 
   // Deletes the trip-wide Tournament/Ryder Cup wrapper this round was
   // about to join (see FormatStep.tsx's "Delete this Tournament/Ryder
-  // Cup" button) — its own rounds/scores are untouched server-side,
-  // this just clears local state so the Format tab falls back to
-  // "start a new one" instead of "joining" a wrapper that no longer
-  // exists.
+  // Cup" button — only rendered while roundType matches, so it's
+  // always safe to fall back to "individual" here). Its own
+  // rounds/scores are untouched server-side; this just clears local
+  // state so the Format tab falls back to "start a new one" instead
+  // of "joining" a wrapper that no longer exists.
   const handleDeleteTournament = async () => {
     if (!activeTournament) return;
     await deleteTournament(activeTournament.id);
@@ -224,6 +250,7 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
     if (!activeRyderCup) return;
     await deleteRyderCupTournament(activeRyderCup.id);
     setActiveRyderCup(null);
+    setRoundType("individual");
     setRyderCup(prev => ({ ...prev, enabled: false }));
   };
 
@@ -348,7 +375,7 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
       {tab === "format" && (
         <FormatStep
           roundType={roundType}
-          setRoundType={setRoundType}
+          setRoundType={handleSetRoundType}
           activeTournament={activeTournament}
           onDeleteTournament={handleDeleteTournament}
           tournamentTotalRounds={tournamentTotalRounds}
@@ -357,12 +384,6 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
           setUsesHandicap={setUsesHandicap}
           tournamentCourseOrder={tournamentCourseOrder}
           setTournamentCourseOrderAt={setTournamentCourseOrderAt}
-          players={players}
-          ryderCup={ryderCup}
-          setRyderCup={setRyderCup}
-          assignment={teamAssignment}
-          setAssignment={setTeamAssignment}
-          ryderCupLocked={ryderCupTeamsLocked}
           activeRyderCup={activeRyderCup}
           onDeleteRyderCup={handleDeleteRyderCup}
           ryderCupTotalRounds={ryderCupTotalRounds}
@@ -379,6 +400,16 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
           roster={roster}
           onDeleteFromRoster={handleDeleteFromRoster}
           lastRoundPlayerIds={lastRoundPlayerIds}
+        />
+      )}
+      {tab === "teams" && (
+        <TeamsStep
+          players={players}
+          assignment={teamAssignment}
+          setAssignment={setTeamAssignment}
+          ryderCup={ryderCup}
+          setRyderCup={setRyderCup}
+          locked={ryderCupTeamsLocked}
         />
       )}
       {tab === "foursomes" && <FoursomesStep players={players} groups={groups} setGroups={setGroups} />}
