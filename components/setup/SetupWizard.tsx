@@ -412,7 +412,15 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
           locked={ryderCupTeamsLocked}
         />
       )}
-      {tab === "foursomes" && <FoursomesStep players={players} groups={groups} setGroups={setGroups} />}
+      {tab === "foursomes" && (
+        <FoursomesStep
+          players={players}
+          groups={groups}
+          setGroups={setGroups}
+          roundType={roundType}
+          ryderCupMatches={ryderCup.matches}
+        />
+      )}
       {tab === "skins" && (
         <SkinsStep config={skinsConfig} setConfig={setSkinsConfig} playerCount={players.length} />
       )}

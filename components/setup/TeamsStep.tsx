@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type Dispatch, type SetStateAction } from "react";
 import type { Player } from "@/lib/types";
 import type {
   RyderCupGameConfig,
@@ -49,9 +49,14 @@ export default function TeamsStep({
 }: {
   players: Player[];
   assignment: Record<string, "A" | "B">;
-  setAssignment: (a: Record<string, "A" | "B">) => void;
+  // Dispatch, not a plain setter — several handlers below (toggling a
+  // match player, moving someone between teams) need the functional
+  // updater form so rapid clicks in the same event-batch each build on
+  // the previous one instead of racing against a stale closure and
+  // silently dropping earlier selections.
+  setAssignment: Dispatch<SetStateAction<Record<string, "A" | "B">>>;
   ryderCup: RyderCupWizardConfig;
-  setRyderCup: (r: RyderCupWizardConfig) => void;
+  setRyderCup: Dispatch<SetStateAction<RyderCupWizardConfig>>;
   /**
    * True when this round is joining a Ryder Cup that already has a
    * saved team split (see lib/rounds.ts ActiveRyderCupTournament) —
@@ -85,37 +90,44 @@ export default function TeamsStep({
     list.length ? (list.reduce((s, p) => s + p.handicapIndex, 0) / list.length).toFixed(1) : "—";
 
   const updateMatch = (matchId: string, patch: Partial<RyderCupMatchConfig>) => {
-    setRyderCup({
-      ...ryderCup,
-      matches: ryderCup.matches.map(m => (m.id === matchId ? { ...m, ...patch } : m)),
-    });
+    setRyderCup(prev => ({
+      ...prev,
+      matches: prev.matches.map(m => (m.id === matchId ? { ...m, ...patch } : m)),
+    }));
   };
 
   const addMatch = () => {
-    setRyderCup({ ...ryderCup, matches: [...ryderCup.matches, blankMatch(ryderCup.matches.length + 1)] });
+    setRyderCup(prev => ({ ...prev, matches: [...prev.matches, blankMatch(prev.matches.length + 1)] }));
   };
 
   const removeMatch = (matchId: string) => {
-    setRyderCup({
-      ...ryderCup,
-      matches: ryderCup.matches
-        .filter(m => m.id !== matchId)
-        .map((m, i) => ({ ...m, matchNumber: i + 1 })),
-    });
+    setRyderCup(prev => ({
+      ...prev,
+      matches: prev.matches.filter(m => m.id !== matchId).map((m, i) => ({ ...m, matchNumber: i + 1 })),
+    }));
   };
 
+  // Reads the match to toggle from `prev` inside the updater (not from
+  // the ryderCup closure) — same reasoning as everywhere else here:
+  // toggling two different players in quick succession must each see
+  // the other's change, not both computing off the same stale snapshot.
   const toggleMatchPlayer = (matchId: string, side: "A" | "B", playerId: string) => {
-    const match = ryderCup.matches.find(m => m.id === matchId);
-    if (!match) return;
-    const key = side === "A" ? "teamAPlayerIds" : "teamBPlayerIds";
-    const current = match[key];
-    const max = PLAYERS_PER_SIDE[match.format];
-    const next = current.includes(playerId)
-      ? current.filter(id => id !== playerId)
-      : current.length < max
-      ? [...current, playerId]
-      : current;
-    updateMatch(matchId, { [key]: next } as Partial<RyderCupMatchConfig>);
+    setRyderCup(prev => {
+      const match = prev.matches.find(m => m.id === matchId);
+      if (!match) return prev;
+      const key = side === "A" ? "teamAPlayerIds" : "teamBPlayerIds";
+      const current = match[key];
+      const max = PLAYERS_PER_SIDE[match.format];
+      const next = current.includes(playerId)
+        ? current.filter(id => id !== playerId)
+        : current.length < max
+        ? [...current, playerId]
+        : current;
+      return {
+        ...prev,
+        matches: prev.matches.map(m => (m.id === matchId ? { ...m, [key]: next } : m)),
+      };
+    });
   };
 
   return (
@@ -152,11 +164,10 @@ export default function TeamsStep({
             <div className="flex justify-between items-center mb-2.5">
               <input
                 value={side === "A" ? ryderCup.teamAName : ryderCup.teamBName}
-                onChange={e =>
-                  setRyderCup(
-                    side === "A" ? { ...ryderCup, teamAName: e.target.value } : { ...ryderCup, teamBName: e.target.value }
-                  )
-                }
+                onChange={e => {
+                  const value = e.target.value;
+                  setRyderCup(prev => (side === "A" ? { ...prev, teamAName: value } : { ...prev, teamBName: value }));
+                }}
                 disabled={effectiveLocked}
                 className="font-display font-extrabold text-base bg-transparent border-b border-dashed border-[color:var(--border-strong)] focus:border-turf outline-none min-w-0 w-[90px] disabled:opacity-70"
               />
@@ -168,7 +179,7 @@ export default function TeamsStep({
                 <div className="text-[11px] text-chalk-dim font-mono">{p.handicapIndex}</div>
                 {!effectiveLocked && (
                   <button
-                    onClick={() => setAssignment({ ...assignment, [p.id]: side === "A" ? "B" : "A" })}
+                    onClick={() => setAssignment(prev => ({ ...prev, [p.id]: side === "A" ? "B" : "A" }))}
                     className="text-[10px] text-turf font-bold"
                   >
                     move
@@ -189,13 +200,13 @@ export default function TeamsStep({
             <div key={p.id} className="flex items-center gap-2 bg-surface-raised rounded-lg px-2.5 py-1.5 mb-1.5">
               <div className="text-[12.5px] font-semibold flex-1">{p.name || "Unnamed"}</div>
               <button
-                onClick={() => setAssignment({ ...assignment, [p.id]: "A" })}
+                onClick={() => setAssignment(prev => ({ ...prev, [p.id]: "A" }))}
                 className="text-[11px] font-bold px-2 py-1 rounded-md bg-turf/15 text-turf"
               >
                 → {ryderCup.teamAName}
               </button>
               <button
-                onClick={() => setAssignment({ ...assignment, [p.id]: "B" })}
+                onClick={() => setAssignment(prev => ({ ...prev, [p.id]: "B" }))}
                 className="text-[11px] font-bold px-2 py-1 rounded-md bg-flag/15 text-flag"
               >
                 → {ryderCup.teamBName}
@@ -214,7 +225,10 @@ export default function TeamsStep({
           min={0.5}
           step="0.5"
           value={ryderCup.defaultPointValue}
-          onChange={e => setRyderCup({ ...ryderCup, defaultPointValue: parseFloat(e.target.value) || 0 })}
+          onChange={e => {
+            const value = parseFloat(e.target.value) || 0;
+            setRyderCup(prev => ({ ...prev, defaultPointValue: value }));
+          }}
           className="w-16 bg-surface-raised border border-[color:var(--border-strong)] rounded-lg px-2 py-1.5 text-sm font-mono"
         />
       </div>

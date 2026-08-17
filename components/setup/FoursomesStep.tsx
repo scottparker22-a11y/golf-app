@@ -1,7 +1,10 @@
 "use client";
 
+import { useEffect } from "react";
 import type { GolfFormat, Player } from "@/lib/types";
 import { usesPairing } from "@/lib/scoring";
+import type { RyderCupMatchConfig } from "@/lib/scoring";
+import type { RoundType } from "./SetupWizard";
 
 export type Group = {
   id: string;
@@ -33,15 +36,64 @@ function defaultPairings(ids: string[]): Record<string, "1" | "2"> {
   return pairings;
 }
 
+// One physical group per Ryder Cup match — a Four-Ball match's 4
+// players (2 per side) become one Best Ball foursome with the same
+// A/B split already decided on the Ryder Cup tab; a Singles match's 2
+// players become their own twosome, plain Stroke Play (nothing to
+// team up — it's 1 vs 1). Matches still missing a player on either
+// side are skipped; there's no group to build from an incomplete one.
+function groupsFromRyderCupMatches(matches: RyderCupMatchConfig[]): Group[] {
+  return matches
+    .filter(m => m.teamAPlayerIds.length > 0 && m.teamBPlayerIds.length > 0)
+    .map(m => {
+      const isFourBall = m.format === "four_ball";
+      const pairings: Record<string, "1" | "2"> = {};
+      if (isFourBall) {
+        m.teamAPlayerIds.forEach(id => (pairings[id] = "1"));
+        m.teamBPlayerIds.forEach(id => (pairings[id] = "2"));
+      }
+      return {
+        id: crypto.randomUUID(),
+        playerIds: [...m.teamAPlayerIds, ...m.teamBPlayerIds],
+        format: isFourBall ? "best_ball" : "stroke_play",
+        strokePlayTeams: "none",
+        pairings,
+      };
+    });
+}
+
 export default function FoursomesStep({
   players,
   groups,
   setGroups,
+  roundType,
+  ryderCupMatches,
 }: {
   players: Player[];
   groups: Group[];
   setGroups: (g: Group[]) => void;
+  /** See lib/scoring.ts's Ryder Cup types — used to auto-pull groups below when this round is Ryder Cup. */
+  roundType: RoundType;
+  ryderCupMatches: RyderCupMatchConfig[];
 }) {
+  const isRyderCup = roundType === "ryder_cup";
+  const completeRyderCupMatches = ryderCupMatches.filter(
+    m => m.teamAPlayerIds.length > 0 && m.teamBPlayerIds.length > 0
+  );
+
+  // Auto-pull the moment there's something to pull and nothing's been
+  // built here yet — same "fill in a sensible default, don't clobber
+  // what's already there" rule the rest of the wizard follows (see
+  // SetupWizard.tsx's course-order/course-id auto-fills). The "Pull
+  // groups from Ryder Cup matches" button below covers re-syncing
+  // after matches change later.
+  useEffect(() => {
+    if (isRyderCup && groups.length === 0 && completeRyderCupMatches.length > 0) {
+      setGroups(groupsFromRyderCupMatches(completeRyderCupMatches));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRyderCup, completeRyderCupMatches.length, groups.length]);
+
   const autoFill = () => {
     const sorted = [...players].sort((a, b) => a.handicapIndex - b.handicapIndex);
     const size = 4;
@@ -57,6 +109,10 @@ export default function FoursomesStep({
       });
     }
     setGroups(next);
+  };
+
+  const pullFromRyderCup = () => {
+    setGroups(groupsFromRyderCupMatches(completeRyderCupMatches));
   };
 
   const avgHcp = (ids: string[]) => {
@@ -94,16 +150,27 @@ export default function FoursomesStep({
   return (
     <div className="px-5 pt-4">
       <p className="text-[13px] text-chalk-dim leading-relaxed mb-4">
-        Groups for the round — auto-fill spreads handicaps evenly, or build them manually. Use
-        the group dropdown next to a player to move them to a different foursome.
+        {isRyderCup
+          ? "Groups for the round — pulled straight from your Ryder Cup matches by default, since those already decide who's playing together. Auto-fill (by handicap) or manual edits still work if you'd rather build them yourself."
+          : "Groups for the round — auto-fill spreads handicaps evenly, or build them manually. Use the group dropdown next to a player to move them to a different foursome."}
       </p>
 
-      <button
-        onClick={autoFill}
-        className="inline-flex items-center gap-1.5 bg-surface-raised border border-[color:var(--border-strong)] text-chalk text-[12.5px] font-bold px-3 py-2 rounded-lg mb-4"
-      >
-        ⤨ Auto-fill foursomes
-      </button>
+      <div className="flex flex-wrap gap-2 mb-4">
+        {isRyderCup && completeRyderCupMatches.length > 0 && (
+          <button
+            onClick={pullFromRyderCup}
+            className="inline-flex items-center gap-1.5 bg-turf/15 border border-turf text-turf text-[12.5px] font-bold px-3 py-2 rounded-lg"
+          >
+            ⛳ Pull groups from Ryder Cup matches
+          </button>
+        )}
+        <button
+          onClick={autoFill}
+          className="inline-flex items-center gap-1.5 bg-surface-raised border border-[color:var(--border-strong)] text-chalk text-[12.5px] font-bold px-3 py-2 rounded-lg"
+        >
+          ⤨ Auto-fill foursomes
+        </button>
+      </div>
 
       {groups.map((group, gi) => (
         <div key={group.id} className="bg-surface border border-[color:var(--border)] rounded-xl p-3.5 mb-3">
