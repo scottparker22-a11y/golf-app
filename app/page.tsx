@@ -9,7 +9,7 @@ import AdminSetupLink from "@/components/admin/AdminSetupLink";
 const NAV_ITEMS: { href: string; emoji: string; label: string; ring: string }[] = [
   { href: "/trip/demo/leaderboard", emoji: "🏆", label: "Live Leaderboard", ring: "border-turf" },
   { href: "/trip/demo/scorecard", emoji: "⛳", label: "Enter Score", ring: "border-sand" },
-  { href: "/trip/demo/rounds", emoji: "🕘", label: "Round History", ring: "border-flag" },
+  { href: "/trip/demo/rounds", emoji: "🕘", label: "Select Round", ring: "border-flag" },
 ];
 
 // Landing page — in a real build this would list the user's trips

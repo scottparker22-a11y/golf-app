@@ -13,7 +13,7 @@ export default function RoundsPage({ params }: { params: { tripId: string } }) {
         <div className="text-xs font-semibold uppercase tracking-wide text-chalk-dim mb-2.5">
           Round history
         </div>
-        <h1 className="font-display font-extrabold text-3xl leading-none mb-1">Round History</h1>
+        <h1 className="font-display font-extrabold text-3xl leading-none mb-1">Select Round</h1>
         <div className="text-sm text-chalk-dim font-medium">Every round is saved — tap one to look back</div>
       </div>
 
