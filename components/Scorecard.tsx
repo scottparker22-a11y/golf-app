@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import type { Hole } from "@/lib/types";
+import { useEffect, useMemo, useState } from "react";
+import type { Hole, HoleScore, Player } from "@/lib/types";
 import {
   approxCourseHandicap,
   calculateTwoManMatchPlay,
@@ -14,11 +14,14 @@ import { useLiveRound } from "@/lib/liveRound";
 
 export default function Scorecard({ roundId }: { roundId: string }) {
   const [mode, setMode] = useState<"players" | "teams">("players");
-  // Which stroke cell's stat entry sheet is open (Fairway/GIR/Putts —
-  // see lib/scoring.ts calculateRoundStats and RoundsStep.tsx for
-  // where track_stats gets turned on). Only ever opens on a cell that
-  // already has a stroke entered — see handleCellClick.
-  const [expandedCell, setExpandedCell] = useState<{ playerId: string; holeNumber: number } | null>(null);
+  // Which cell's entry sheet is open. When stats are on, this is the
+  // ONLY way strokes get entered too (see ScoreStatSheet below) — not
+  // just Fairway/GIR/Putts — since a plain number input pops the
+  // on-screen keyboard, which then sits on top of (or fights with) the
+  // stat sheet on mobile. See handleCellClick.
+  const [expandedCell, setExpandedCell] = useState<{ groupId: string; playerId: string; holeNumber: number } | null>(
+    null
+  );
 
   // Live, shared with every other device scoring this same round.
   const { loading, error, players, holes, teams, holeScores, trackStats, setStroke, setHoleStat, clearStroke } =
@@ -74,13 +77,12 @@ export default function Scorecard({ roundId }: { roundId: string }) {
     setStroke(groupId, playerId, holeNumber, n);
   };
 
-  // Tapping a stroke box that already has a value opens the stat
-  // entry sheet for it — a box that's still empty just takes the tap
-  // as normal focus-and-type, so entering strokes for the first time
-  // never gets interrupted by the sheet popping up underneath you.
-  const handleCellClick = (playerId: string, holeNumber: number, strokes: number | undefined) => {
-    if (!trackStats || strokes === undefined) return;
-    setExpandedCell({ playerId, holeNumber });
+  // With stats on, every stroke box (empty or not) opens the combined
+  // score + stat sheet instead of taking direct keyboard input — see
+  // ScoreStatSheet. Without stats, cells stay plain number inputs.
+  const handleCellClick = (groupId: string, playerId: string, holeNumber: number) => {
+    if (!trackStats) return;
+    setExpandedCell({ groupId, playerId, holeNumber });
   };
 
   // Front 9 / back 9 split for the OUT / IN / TOT subtotal columns.
@@ -230,28 +232,45 @@ export default function Scorecard({ roundId }: { roundId: string }) {
                       const strokes = scoreFor(playerId, h.number);
                       const getsStroke = strokesReceived(h, courseHandicap) > 0;
                       const wonHole = winningHoles.has(h.number);
+                      const cellClass = `w-[36px] h-[32px] text-center bg-surface-raised border rounded-md font-mono font-semibold outline-none focus:border-turf ${relToParClass(
+                        strokes,
+                        h.par
+                      )} ${
+                        wonHole
+                          ? "border-turf ring-2 ring-turf/50"
+                          : getsStroke
+                          ? "border-sand"
+                          : "border-[color:var(--border-strong)]"
+                      }`;
                       return (
                         <td key={h.number} className="p-0.5">
                           <div className="relative">
-                            <input
-                              type="number"
-                              inputMode="numeric"
-                              min={1}
-                              max={15}
-                              value={strokes ?? ""}
-                              onChange={e => handleChange(team.id, playerId, h.number, e.target.value)}
-                              onClick={() => handleCellClick(playerId, h.number, strokes)}
-                              className={`w-[36px] h-[32px] text-center bg-surface-raised border rounded-md font-mono font-semibold outline-none focus:border-turf ${relToParClass(
-                                strokes,
-                                h.par
-                              )} ${
-                                wonHole
-                                  ? "border-turf ring-2 ring-turf/50"
-                                  : getsStroke
-                                  ? "border-sand"
-                                  : "border-[color:var(--border-strong)]"
-                              }`}
-                            />
+                            {trackStats ? (
+                              // A native number input pops the on-screen
+                              // keyboard, which then covers (or fights
+                              // with) the stat sheet on mobile — so with
+                              // stats on, the cell itself is just a
+                              // button that opens the combined score +
+                              // stat sheet (see ScoreStatSheet) instead
+                              // of taking direct keyboard input.
+                              <button
+                                type="button"
+                                onClick={() => handleCellClick(team.id, playerId, h.number)}
+                                className={cellClass}
+                              >
+                                {strokes ?? ""}
+                              </button>
+                            ) : (
+                              <input
+                                type="number"
+                                inputMode="numeric"
+                                min={1}
+                                max={15}
+                                value={strokes ?? ""}
+                                onChange={e => handleChange(team.id, playerId, h.number, e.target.value)}
+                                className={cellClass}
+                              />
+                            )}
                             {getsStroke && (
                               <span
                                 title="Handicap stroke"
@@ -370,101 +389,169 @@ export default function Scorecard({ roundId }: { roundId: string }) {
           const hole = holes.find(h => h.number === expandedCell.holeNumber);
           const player = players.find(p => p.id === expandedCell.playerId);
           if (!hole || !player) return null;
-          const score = holeScores.find(
-            s => s.playerId === player.id && s.holeNumber === hole.number
-          );
-          const putts = score?.putts ?? 0;
-
-          const yesNoRow = (
-            field: "fairwayHit" | "gir",
-            current: boolean | null | undefined
-          ) => (
-            <div className="flex gap-2">
-              <button
-                onClick={() => setHoleStat(player.id, hole.number, field, true)}
-                className={`flex-1 py-2.5 rounded-lg border font-bold text-sm ${
-                  current === true
-                    ? "bg-turf text-fairway-950 border-turf"
-                    : "bg-surface-raised border-[color:var(--border-strong)] text-chalk-dim"
-                }`}
-              >
-                Yes
-              </button>
-              <button
-                onClick={() => setHoleStat(player.id, hole.number, field, false)}
-                className={`flex-1 py-2.5 rounded-lg border font-bold text-sm ${
-                  current === false
-                    ? "bg-flag text-white border-flag"
-                    : "bg-surface-raised border-[color:var(--border-strong)] text-chalk-dim"
-                }`}
-              >
-                No
-              </button>
-            </div>
-          );
-
+          const score = holeScores.find(s => s.playerId === player.id && s.holeNumber === hole.number);
           return (
-            <>
-              <div
-                className="fixed inset-0 bg-black/50 z-40"
-                onClick={() => setExpandedCell(null)}
-              />
-              <div className="fixed inset-x-0 bottom-0 z-50 max-w-[460px] mx-auto bg-surface border-t border-[color:var(--border-strong)] rounded-t-2xl p-5 pb-8">
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-chalk-dim">
-                      Hole {hole.number} · Par {hole.par}
-                    </div>
-                    <div className="text-[16px] font-bold text-chalk">{player.name}</div>
-                  </div>
-                  <button
-                    onClick={() => setExpandedCell(null)}
-                    className="text-turf text-[13px] font-bold px-3 py-2"
-                  >
-                    Done
-                  </button>
-                </div>
-
-                {hole.par !== 3 && (
-                  <div className="mb-4">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-chalk-dim mb-1.5">
-                      Fairway Hit
-                    </div>
-                    {yesNoRow("fairwayHit", score?.fairwayHit)}
-                  </div>
-                )}
-
-                <div className="mb-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-chalk-dim mb-1.5">
-                    Green in Regulation
-                  </div>
-                  {yesNoRow("gir", score?.gir)}
-                </div>
-
-                <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-chalk-dim mb-1.5">
-                    Putts
-                  </div>
-                  <div className="flex items-center justify-center gap-5">
-                    <button
-                      onClick={() => setHoleStat(player.id, hole.number, "putts", Math.max(0, putts - 1))}
-                      className="w-11 h-11 rounded-full bg-surface-raised border border-[color:var(--border-strong)] text-chalk text-xl font-bold flex items-center justify-center"
-                    >
-                      −
-                    </button>
-                    <div className="font-mono text-2xl font-bold text-chalk w-10 text-center">{putts}</div>
-                    <button
-                      onClick={() => setHoleStat(player.id, hole.number, "putts", putts + 1)}
-                      className="w-11 h-11 rounded-full bg-surface-raised border border-[color:var(--border-strong)] text-chalk text-xl font-bold flex items-center justify-center"
-                    >
-                      +
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </>
+            <ScoreStatSheet
+              groupId={expandedCell.groupId}
+              hole={hole}
+              player={player}
+              score={score}
+              setStroke={setStroke}
+              setHoleStat={setHoleStat}
+              clearStroke={clearStroke}
+              onClose={() => setExpandedCell(null)}
+            />
           );
         })()}
     </div>
+  );
+}
+
+// Combined score + stat entry, opened by tapping any stroke cell once
+// stats are on (see handleCellClick above) — score itself is a +/−
+// stepper here too, same as Putts, so nothing on this sheet ever pops
+// the on-screen keyboard (which on mobile otherwise ends up covering,
+// or fighting with, the sheet). Player/hole/par stay pinned at the
+// top as a reminder of what's being entered. A hole with no stroke
+// yet defaults straight to par the moment the sheet opens, so there's
+// always a real, saved value to adjust from — same idea as Putts
+// implicitly defaulting to 0.
+function ScoreStatSheet({
+  groupId,
+  hole,
+  player,
+  score,
+  setStroke,
+  setHoleStat,
+  clearStroke,
+  onClose,
+}: {
+  groupId: string;
+  hole: Hole;
+  player: Player;
+  score: HoleScore | undefined;
+  setStroke: (groupId: string, playerId: string, holeNumber: number, strokes: number) => void;
+  setHoleStat: (
+    playerId: string,
+    holeNumber: number,
+    field: "fairwayHit" | "gir" | "putts",
+    value: boolean | number | null
+  ) => void;
+  clearStroke: (playerId: string, holeNumber: number) => void;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    if (score?.strokes === undefined) {
+      setStroke(groupId, player.id, hole.number, hole.par);
+    }
+    // Only on open — deliberately not reacting to score changes after
+    // that (this only ever needs to fire once, to seed a blank hole).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupId, hole.number, player.id]);
+
+  const strokes = score?.strokes ?? hole.par;
+  const putts = score?.putts ?? 0;
+
+  const stepper = (
+    value: number,
+    onChange: (next: number) => void,
+    min: number
+  ) => (
+    <div className="flex items-center justify-center gap-5">
+      <button
+        onClick={() => onChange(Math.max(min, value - 1))}
+        className="w-11 h-11 rounded-full bg-surface-raised border border-[color:var(--border-strong)] text-chalk text-xl font-bold flex items-center justify-center"
+      >
+        −
+      </button>
+      <div className="font-mono text-2xl font-bold text-chalk w-10 text-center">{value}</div>
+      <button
+        onClick={() => onChange(value + 1)}
+        className="w-11 h-11 rounded-full bg-surface-raised border border-[color:var(--border-strong)] text-chalk text-xl font-bold flex items-center justify-center"
+      >
+        +
+      </button>
+    </div>
+  );
+
+  const yesNoRow = (field: "fairwayHit" | "gir", current: boolean | null | undefined) => (
+    <div className="flex gap-2">
+      <button
+        onClick={() => setHoleStat(player.id, hole.number, field, true)}
+        className={`flex-1 py-2.5 rounded-lg border font-bold text-sm ${
+          current === true
+            ? "bg-turf text-fairway-950 border-turf"
+            : "bg-surface-raised border-[color:var(--border-strong)] text-chalk-dim"
+        }`}
+      >
+        Yes
+      </button>
+      <button
+        onClick={() => setHoleStat(player.id, hole.number, field, false)}
+        className={`flex-1 py-2.5 rounded-lg border font-bold text-sm ${
+          current === false
+            ? "bg-flag text-white border-flag"
+            : "bg-surface-raised border-[color:var(--border-strong)] text-chalk-dim"
+        }`}
+      >
+        No
+      </button>
+    </div>
+  );
+
+  return (
+    <>
+      <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />
+      <div className="fixed inset-x-0 bottom-0 z-50 max-w-[460px] mx-auto bg-surface border-t border-[color:var(--border-strong)] rounded-t-2xl p-5 pb-8">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-chalk-dim">
+              Hole {hole.number} · Par {hole.par}
+            </div>
+            <div className="text-[16px] font-bold text-chalk">{player.name}</div>
+          </div>
+          <button onClick={onClose} className="text-turf text-[13px] font-bold px-3 py-2">
+            Done
+          </button>
+        </div>
+
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-1.5">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-chalk-dim">Score</div>
+            <button
+              onClick={() => {
+                clearStroke(player.id, hole.number);
+                onClose();
+              }}
+              className="text-[11px] font-bold text-chalk-dim underline"
+            >
+              Clear
+            </button>
+          </div>
+          {stepper(strokes, next => setStroke(groupId, player.id, hole.number, Math.min(15, next)), 1)}
+        </div>
+
+        {hole.par !== 3 && (
+          <div className="mb-4">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-chalk-dim mb-1.5">
+              Fairway Hit
+            </div>
+            {yesNoRow("fairwayHit", score?.fairwayHit)}
+          </div>
+        )}
+
+        <div className="mb-4">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-chalk-dim mb-1.5">
+            Green in Regulation
+          </div>
+          {yesNoRow("gir", score?.gir)}
+        </div>
+
+        <div>
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-chalk-dim mb-1.5">Putts</div>
+          {stepper(putts, next => setHoleStat(player.id, hole.number, "putts", next), 0)}
+        </div>
+      </div>
+    </>
   );
 }
