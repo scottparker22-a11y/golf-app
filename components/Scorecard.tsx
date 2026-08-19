@@ -12,6 +12,16 @@ import {
 } from "@/lib/scoring";
 import { useLiveRound } from "@/lib/liveRound";
 
+// Same color scale everywhere strokes-relative-to-par shows up on the
+// Scorecard — the grid cells and ScoreStatSheet's Score stepper alike.
+function relToParClass(strokes: number | undefined, par: number): string {
+  if (strokes === undefined) return "text-chalk-dim";
+  if (strokes <= par - 1) return "text-turf";
+  if (strokes === par) return "text-chalk";
+  if (strokes === par + 1) return "text-sand";
+  return "text-flag";
+}
+
 export default function Scorecard({ roundId }: { roundId: string }) {
   const [mode, setMode] = useState<"players" | "teams">("players");
   // Which cell's entry sheet is open. When stats are on, this is the
@@ -50,14 +60,6 @@ export default function Scorecard({ roundId }: { roundId: string }) {
 
   const scoreFor = (playerId: string, holeNumber: number) =>
     holeScores.find(s => s.playerId === playerId && s.holeNumber === holeNumber)?.strokes;
-
-  const relToParClass = (strokes: number | undefined, par: number) => {
-    if (strokes === undefined) return "text-chalk-dim";
-    if (strokes <= par - 1) return "text-turf";
-    if (strokes === par) return "text-chalk";
-    if (strokes === par + 1) return "text-sand";
-    return "text-flag";
-  };
 
   // Handicap strokes per hole, per player — based on the same
   // approxCourseHandicap simplification used on the leaderboard, until
@@ -390,12 +392,14 @@ export default function Scorecard({ roundId }: { roundId: string }) {
           const player = players.find(p => p.id === expandedCell.playerId);
           if (!hole || !player) return null;
           const score = holeScores.find(s => s.playerId === player.id && s.holeNumber === hole.number);
+          const getsStroke = strokesReceived(hole, courseHandicapFor(player.id)) > 0;
           return (
             <ScoreStatSheet
               groupId={expandedCell.groupId}
               hole={hole}
               player={player}
               score={score}
+              getsStroke={getsStroke}
               setStroke={setStroke}
               setHoleStat={setHoleStat}
               clearStroke={clearStroke}
@@ -421,6 +425,7 @@ function ScoreStatSheet({
   hole,
   player,
   score,
+  getsStroke,
   setStroke,
   setHoleStat,
   clearStroke,
@@ -430,6 +435,8 @@ function ScoreStatSheet({
   hole: Hole;
   player: Player;
   score: HoleScore | undefined;
+  /** Whether this player gets a handicap stroke on this hole — same dot as the grid cell. */
+  getsStroke: boolean;
   setStroke: (groupId: string, playerId: string, holeNumber: number, strokes: number) => void;
   setHoleStat: (
     playerId: string,
@@ -455,7 +462,8 @@ function ScoreStatSheet({
   const stepper = (
     value: number,
     onChange: (next: number) => void,
-    min: number
+    min: number,
+    valueClassName = "text-chalk"
   ) => (
     <div className="flex items-center justify-center gap-5">
       <button
@@ -464,7 +472,7 @@ function ScoreStatSheet({
       >
         −
       </button>
-      <div className="font-mono text-2xl font-bold text-chalk w-10 text-center">{value}</div>
+      <div className={`font-mono text-2xl font-bold w-10 text-center ${valueClassName}`}>{value}</div>
       <button
         onClick={() => onChange(value + 1)}
         className="w-11 h-11 rounded-full bg-surface-raised border border-[color:var(--border-strong)] text-chalk text-xl font-bold flex items-center justify-center"
@@ -517,7 +525,15 @@ function ScoreStatSheet({
 
         <div className="mb-4">
           <div className="flex items-center justify-between mb-1.5">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-chalk-dim">Score</div>
+            <div className="flex items-center gap-1.5">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-chalk-dim">Score</div>
+              {getsStroke && (
+                <span
+                  title="Handicap stroke"
+                  className="inline-block w-[6px] h-[6px] rounded-full bg-sand flex-shrink-0"
+                />
+              )}
+            </div>
             <button
               onClick={() => {
                 clearStroke(player.id, hole.number);
@@ -528,7 +544,12 @@ function ScoreStatSheet({
               Clear
             </button>
           </div>
-          {stepper(strokes, next => setStroke(groupId, player.id, hole.number, Math.min(15, next)), 1)}
+          {stepper(
+            strokes,
+            next => setStroke(groupId, player.id, hole.number, Math.min(15, next)),
+            1,
+            relToParClass(strokes, hole.par)
+          )}
         </div>
 
         {hole.par !== 3 && (
