@@ -16,15 +16,15 @@ export default function PageNav() {
 
   return (
     <div className="flex gap-1.5 px-5 pt-3">
+      <Link href="/" className={buttonClass} aria-label="Go to home page">
+        Home
+      </Link>
       <button type="button" onClick={() => router.back()} className={buttonClass} aria-label="Go back">
         ← Back
       </button>
       <button type="button" onClick={() => router.forward()} className={buttonClass} aria-label="Go forward">
         Forward →
       </button>
-      <Link href="/" className={buttonClass} aria-label="Go to home page">
-        Home
-      </Link>
     </div>
   );
 }
