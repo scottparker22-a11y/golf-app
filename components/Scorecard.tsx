@@ -106,6 +106,49 @@ export default function Scorecard({ roundId }: { roundId: string }) {
   const subtotalCellClass =
     "px-1.5 py-1.5 text-center font-mono font-bold bg-surface-raised border-l border-[color:var(--border-strong)]";
 
+  // Running fairway/GIR/putts totals for the whole round so far — only
+  // shown once stats are on (columns tacked on after TOT, same visual
+  // treatment as OUT/IN/TOT). Fairway Hit is skipped on par-3s in the
+  // entry sheet, so it's excluded from that denominator too; "attempted"
+  // for both counts only holes where a Yes/No has actually been
+  // recorded, not every hole in the round, so the fraction reads
+  // correctly mid-round rather than looking like a bunch of misses.
+  const fairwayStats = (playerId: string) => {
+    let hits = 0;
+    let attempted = 0;
+    for (const h of holes) {
+      if (h.par === 3) continue;
+      const fh = holeScores.find(s => s.playerId === playerId && s.holeNumber === h.number)?.fairwayHit;
+      if (fh === true) hits++;
+      if (fh === true || fh === false) attempted++;
+    }
+    return { hits, attempted };
+  };
+
+  const girStats = (playerId: string) => {
+    let hits = 0;
+    let attempted = 0;
+    for (const h of holes) {
+      const gir = holeScores.find(s => s.playerId === playerId && s.holeNumber === h.number)?.gir;
+      if (gir === true) hits++;
+      if (gir === true || gir === false) attempted++;
+    }
+    return { hits, attempted };
+  };
+
+  const puttsTotal = (playerId: string) => {
+    let total = 0;
+    let count = 0;
+    for (const h of holes) {
+      const putts = holeScores.find(s => s.playerId === playerId && s.holeNumber === h.number)?.putts;
+      if (typeof putts === "number") {
+        total += putts;
+        count++;
+      }
+    }
+    return count ? total : undefined;
+  };
+
   if (loading) {
     return <div className="px-5 pt-8 text-sm text-chalk-dim">Loading scorecard…</div>;
   }
@@ -181,6 +224,13 @@ export default function Scorecard({ roundId }: { roundId: string }) {
                   ))}
                   {hasBack && <th className={subtotalHeaderClass}>IN</th>}
                   <th className={subtotalHeaderClass}>TOT</th>
+                  {trackStats && (
+                    <>
+                      <th className={subtotalHeaderClass}>FH</th>
+                      <th className={subtotalHeaderClass}>GIR</th>
+                      <th className={subtotalHeaderClass}>PUTT</th>
+                    </>
+                  )}
                 </tr>
                 <tr>
                   <th className="sticky left-0 z-10 bg-surface text-left px-2.5 py-1.5 text-chalk-dim font-medium text-[11px] border-r border-[color:var(--border-strong)] shadow-[2px_0_4px_-2px_rgba(0,0,0,0.25)]">
@@ -203,6 +253,13 @@ export default function Scorecard({ roundId }: { roundId: string }) {
                     <th className={subtotalHeaderClass + " font-mono"}>{sumPar(backHoles)}</th>
                   )}
                   <th className={subtotalHeaderClass + " font-mono"}>{sumPar(holes)}</th>
+                  {trackStats && (
+                    <>
+                      <th className={subtotalHeaderClass} />
+                      <th className={subtotalHeaderClass} />
+                      <th className={subtotalHeaderClass} />
+                    </>
+                  )}
                 </tr>
                 <tr>
                   <th className="sticky left-0 z-10 bg-surface text-left px-2.5 py-1.5 text-chalk-dim font-medium text-[11px] border-r border-[color:var(--border-strong)] shadow-[2px_0_4px_-2px_rgba(0,0,0,0.25)]">
@@ -221,6 +278,13 @@ export default function Scorecard({ roundId }: { roundId: string }) {
                   ))}
                   {hasBack && <th className={subtotalHeaderClass} />}
                   <th className={subtotalHeaderClass} />
+                  {trackStats && (
+                    <>
+                      <th className={subtotalHeaderClass} />
+                      <th className={subtotalHeaderClass} />
+                      <th className={subtotalHeaderClass} />
+                    </>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -299,6 +363,23 @@ export default function Scorecard({ roundId }: { roundId: string }) {
                           <td className={subtotalCellClass}>{sumStrokes(playerId, backHoles) ?? "–"}</td>
                         )}
                         <td className={subtotalCellClass}>{sumStrokes(playerId, holes) ?? "–"}</td>
+                        {trackStats &&
+                          (() => {
+                            const fh = fairwayStats(playerId);
+                            const gir = girStats(playerId);
+                            const putts = puttsTotal(playerId);
+                            return (
+                              <>
+                                <td className={subtotalCellClass}>
+                                  {fh.attempted ? `${fh.hits}/${fh.attempted}` : "–"}
+                                </td>
+                                <td className={subtotalCellClass}>
+                                  {gir.attempted ? `${gir.hits}/${gir.attempted}` : "–"}
+                                </td>
+                                <td className={subtotalCellClass}>{putts ?? "–"}</td>
+                              </>
+                            );
+                          })()}
                       </tr>
                     );
                   };
@@ -376,6 +457,13 @@ export default function Scorecard({ roundId }: { roundId: string }) {
                         <td className={subtotalCellClass}>
                           {marginAt(holes) !== null ? formatTwoManMargin(marginAt(holes) as number) : "–"}
                         </td>
+                        {trackStats && (
+                          <>
+                            <td className={subtotalCellClass} />
+                            <td className={subtotalCellClass} />
+                            <td className={subtotalCellClass} />
+                          </>
+                        )}
                       </tr>
                     </>
                   );
