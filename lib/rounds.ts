@@ -188,6 +188,7 @@ export type RoundSummary = {
   id: string;
   date: string;
   status: RoundStatus;
+  courseName: string | null;
 };
 
 /**
@@ -200,11 +201,16 @@ export type RoundSummary = {
 export async function fetchRounds(tripId: string): Promise<RoundSummary[]> {
   const { data, error } = await supabase
     .from("rounds")
-    .select("id, date, status")
+    .select("id, date, status, courses(name)")
     .eq("trip_id", tripId)
     .order("created_at", { ascending: false });
   if (error) throw new Error(`Couldn't load rounds: ${error.message}`);
-  return (data ?? []).map(r => ({ id: r.id, date: r.date, status: r.status as RoundStatus }));
+  return (data ?? []).map(r => ({
+    id: r.id,
+    date: r.date,
+    status: r.status as RoundStatus,
+    courseName: (r.courses as unknown as { name: string } | null)?.name ?? null,
+  }));
 }
 
 /**

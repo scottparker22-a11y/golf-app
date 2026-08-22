@@ -158,7 +158,12 @@ export default function RoundsList({ tripId, tripDbId }: { tripId: string; tripD
             opts.faded ? "opacity-70" : ""
           }`}
         >
-          <div className="font-semibold text-[14px]">{formatDate(r.date)}</div>
+          <div className="min-w-0">
+            <div className="font-semibold text-[14px]">{formatDate(r.date)}</div>
+            {r.courseName && (
+              <div className="text-[11.5px] text-chalk-dim truncate">{r.courseName}</div>
+            )}
+          </div>
           <span className={`text-[11px] font-bold px-2 py-1 rounded-md ${STATUS_STYLE[r.status] ?? ""}`}>
             {STATUS_LABEL[r.status] ?? r.status}
           </span>
