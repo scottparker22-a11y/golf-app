@@ -226,7 +226,7 @@ export default function Scorecard({ roundId }: { roundId: string }) {
                   <th className={subtotalHeaderClass}>TOT</th>
                   {trackStats && (
                     <>
-                      <th className={subtotalHeaderClass}>FH</th>
+                      <th className={subtotalHeaderClass}>Fairways</th>
                       <th className={subtotalHeaderClass}>GIR</th>
                       <th className={subtotalHeaderClass}>PUTT</th>
                     </>
