@@ -15,8 +15,10 @@ import {
   fetchActiveRyderCupTournament,
   fetchRyderCupGame,
   fetchRyderCupTeamScoreForTrip,
+  fetchSkinsGame,
   type RyderCupTripScore,
 } from "@/lib/rounds";
+import type { SkinsGameConfig } from "@/lib/scoring";
 import RyderCupScoreBanner from "./RyderCupScoreBanner";
 import RyderCupBoard from "./RyderCupBoard";
 
@@ -87,6 +89,28 @@ export default function Leaderboard({ roundId, tripId }: { roundId: string; trip
     };
   }, [tripId]);
 
+  // This round's actual Skins setup (gross/net on, rollover on/off) —
+  // fetch-once, not live, same pattern as the Ryder Cup fetches above.
+  // The badges below must respect this: which of gross/net is even
+  // being played, and whether a tied hole's skin carries to the next
+  // hole or is just lost — instead of assuming both are on and always
+  // carrying over, which used to overstate skin counts whenever
+  // "Roll over tied holes" was left off in the Setup Wizard.
+  const [skinsConfig, setSkinsConfig] = useState<SkinsGameConfig | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetchSkinsGame(roundId)
+      .then(config => {
+        if (!cancelled) setSkinsConfig(config);
+      })
+      .catch(() => {
+        // Non-fatal — the skins badges just won't show.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [roundId]);
+
   const courseHandicaps = useMemo(() => {
     const map: Record<string, number> = {};
     for (const p of players) map[p.id] = approxCourseHandicap(p.handicapIndex);
@@ -102,21 +126,26 @@ export default function Leaderboard({ roundId, tripId }: { roundId: string; trip
     return [...individualByGross].sort((a, b) => a[sortKey] - b[sortKey]);
   }, [individualByGross, scoreMode]);
 
-  const grossSkinsResults = useMemo(
-    () => calculateSkins(holeScores, players, holes, { usesHandicap: false, carryover: true }, {}),
-    [holeScores, players, holes]
-  );
-  const netSkinsResults = useMemo(
-    () =>
-      calculateSkins(
-        holeScores,
-        players,
-        holes,
-        { usesHandicap: true, carryover: true },
-        courseHandicaps
-      ),
-    [holeScores, players, holes, courseHandicaps]
-  );
+  const grossSkinsResults = useMemo(() => {
+    if (!skinsConfig?.gross) return [];
+    return calculateSkins(
+      holeScores,
+      players,
+      holes,
+      { usesHandicap: false, carryover: skinsConfig.rollover },
+      {}
+    );
+  }, [holeScores, players, holes, skinsConfig]);
+  const netSkinsResults = useMemo(() => {
+    if (!skinsConfig?.net) return [];
+    return calculateSkins(
+      holeScores,
+      players,
+      holes,
+      { usesHandicap: true, carryover: skinsConfig.rollover },
+      courseHandicaps
+    );
+  }, [holeScores, players, holes, courseHandicaps, skinsConfig]);
   const grossSkinsByPlayer = useMemo(() => skinsWonByPlayer(grossSkinsResults), [grossSkinsResults]);
   const netSkinsByPlayer = useMemo(() => skinsWonByPlayer(netSkinsResults), [netSkinsResults]);
 
