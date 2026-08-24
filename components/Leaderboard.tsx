@@ -6,10 +6,12 @@ import {
   approxCourseHandicap,
   calculateIndividualLeaderboard,
   calculateSkins,
+  calculateSkinsPayout,
   calculateTwoManTeamStandings,
   skinsWonByPlayer,
   usesPairing,
 } from "@/lib/scoring";
+import GameChips from "./GameChips";
 import { useLiveRound } from "@/lib/liveRound";
 import {
   fetchActiveRyderCupTournament,
@@ -148,6 +150,15 @@ export default function Leaderboard({ roundId, tripId }: { roundId: string; trip
   }, [holeScores, players, holes, courseHandicaps, skinsConfig]);
   const grossSkinsByPlayer = useMemo(() => skinsWonByPlayer(grossSkinsResults), [grossSkinsResults]);
   const netSkinsByPlayer = useMemo(() => skinsWonByPlayer(netSkinsResults), [netSkinsResults]);
+
+  // The real combined pot for the Skins Pot chip at the bottom of the
+  // page — same calculateSkinsPayout the Skins tab itself uses (see
+  // components/SkinsBoard.tsx), so the two always agree. null when no
+  // Skins game is set up for this round, hiding the chip entirely.
+  const skinsPot = useMemo(() => {
+    if (!skinsConfig) return null;
+    return calculateSkinsPayout(holeScores, players, holes, skinsConfig, courseHandicaps).pot;
+  }, [skinsConfig, holeScores, players, holes, courseHandicaps]);
 
   // Groups set up with 2-man pairing (Best Ball, or Stroke Play opted
   // into "Teams of 2" — see FoursomesStep.tsx) split into their two
@@ -370,6 +381,8 @@ export default function Leaderboard({ roundId, tripId }: { roundId: string; trip
           ))}
         </div>
       )}
+
+      {skinsPot !== null && <GameChips skinsPot={skinsPot} />}
     </div>
   );
 }

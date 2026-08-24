@@ -1,5 +1,4 @@
 import Leaderboard from "@/components/Leaderboard";
-import GameChips from "@/components/GameChips";
 import TripNav from "@/components/TripNav";
 import PageNav from "@/components/PageNav";
 import AdminButton from "@/components/admin/AdminButton";
@@ -15,8 +14,6 @@ export default function RoundLeaderboardPage({
 }: {
   params: { tripId: string; roundId: string };
 }) {
-  const skinsPot = 180;
-
   return (
     <main className="max-w-[460px] mx-auto min-h-screen pb-10">
       <PageNav />
@@ -35,8 +32,6 @@ export default function RoundLeaderboardPage({
       <TripNav tripId={params.tripId} roundId={params.roundId} />
 
       <Leaderboard roundId={params.roundId} tripId={params.tripId} />
-
-      <GameChips skinsPot={skinsPot} />
     </main>
   );
 }
