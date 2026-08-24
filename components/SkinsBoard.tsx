@@ -80,6 +80,17 @@ export default function SkinsBoard({ roundId }: { roundId: string }) {
     (config.gross ? payout.grossResults.every(r => r.status !== "pending") : true) &&
     (config.net ? payout.netResults.every(r => r.status !== "pending") : true);
   const isFlatBuyin = config.pricing.model === "flat_buyin";
+  // Gross and Net each have their own buy-in and pot under Flat Buy-In
+  // pricing, so they can land on different per-skin values — show them
+  // broken out whenever both tracks are in play; otherwise (Per Skin
+  // pricing, or only one of gross/net enabled) a single shared figure
+  // is all there is.
+  const splitPerSkin = isFlatBuyin && config.gross && config.net;
+  const flatPricing = isFlatBuyin ? (config.pricing as { buyInPerPlayerGross: number; buyInPerPlayerNet: number }) : null;
+  const refundedTracks = [
+    payout.gross?.refundAll && { label: "gross", amount: flatPricing?.buyInPerPlayerGross ?? 0 },
+    payout.net?.refundAll && { label: "net", amount: flatPricing?.buyInPerPlayerNet ?? 0 },
+  ].filter((t): t is { label: string; amount: number } => !!t);
 
   return (
     <div className="px-5 pt-4 pb-8">
@@ -94,9 +105,18 @@ export default function SkinsBoard({ roundId }: { roundId: string }) {
           <div className="text-[11px] font-semibold uppercase tracking-wide text-chalk-dim mb-1">
             Per skin{isFlatBuyin && !allHolesComplete ? " (est.)" : ""}
           </div>
-          <div className="font-mono text-lg font-semibold">
-            {payout.refundAll ? "—" : money(payout.perSkinValue)}
-          </div>
+          {splitPerSkin ? (
+            <div className="font-mono text-sm font-semibold leading-tight">
+              <div>G: {payout.gross?.refundAll ? "—" : money(payout.gross?.perSkinValue ?? 0)}</div>
+              <div>N: {payout.net?.refundAll ? "—" : money(payout.net?.perSkinValue ?? 0)}</div>
+            </div>
+          ) : (
+            <div className="font-mono text-lg font-semibold">
+              {(payout.gross ?? payout.net)?.refundAll
+                ? "—"
+                : money((payout.gross ?? payout.net)?.perSkinValue ?? 0)}
+            </div>
+          )}
         </div>
         <div className="flex-1 min-w-[130px] bg-surface border border-[color:var(--border)] rounded-xl px-3.5 py-3">
           <div className="text-[11px] font-semibold uppercase tracking-wide text-chalk-dim mb-1">
@@ -106,9 +126,12 @@ export default function SkinsBoard({ roundId }: { roundId: string }) {
         </div>
       </div>
 
-      {payout.refundAll && (
+      {refundedTracks.length > 0 && (
         <div className="mb-4 p-3 bg-sand/10 border border-sand/30 rounded-xl text-[12.5px] text-sand leading-relaxed">
-          No skins were won across the whole round — every player gets their {money((config.pricing as { buyInPerPlayer: number }).buyInPerPlayer)} entry fee refunded instead.
+          No {refundedTracks.map(t => t.label).join(" or ")} skins were won — every player gets
+          their {refundedTracks.map(t => money(t.amount)).join(" + ")}{" "}
+          {refundedTracks.length === 1 ? refundedTracks[0].label : "gross + net"} entry fee
+          refunded instead.
         </div>
       )}
 
@@ -136,7 +159,7 @@ export default function SkinsBoard({ roundId }: { roundId: string }) {
                 {config.gross && <td className="px-2.5 py-2 text-right font-mono">{p.grossSkins}</td>}
                 {config.net && <td className="px-2.5 py-2 text-right font-mono">{p.netSkins}</td>}
                 <td className="px-2.5 py-2 text-right font-mono font-semibold text-flag">
-                  {payout.refundAll ? "—" : money(p.cash)}
+                  {(payout.gross?.refundAll ?? true) && (payout.net?.refundAll ?? true) ? "—" : money(p.cash)}
                 </td>
               </tr>
             ))}

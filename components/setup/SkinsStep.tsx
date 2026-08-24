@@ -12,7 +12,9 @@ export default function SkinsStep({
   playerCount: number;
 }) {
   const enabled = config.gross || config.net;
-  const pot = config.pricing.model === "flat_buyin" ? playerCount * config.pricing.buyInPerPlayer : null;
+  const flatBuyIn = config.pricing.model === "flat_buyin" ? config.pricing : null;
+  const grossPot = flatBuyIn && config.gross ? playerCount * flatBuyIn.buyInPerPlayerGross : null;
+  const netPot = flatBuyIn && config.net ? playerCount * flatBuyIn.buyInPerPlayerNet : null;
 
   return (
     <div className="px-5 pt-4">
@@ -94,7 +96,12 @@ export default function SkinsStep({
             </button>
 
             <button
-              onClick={() => setConfig({ ...config, pricing: { model: "flat_buyin", buyInPerPlayer: 20 } })}
+              onClick={() =>
+                setConfig({
+                  ...config,
+                  pricing: { model: "flat_buyin", buyInPerPlayerGross: 20, buyInPerPlayerNet: 20 },
+                })
+              }
               className={`p-3 rounded-xl border text-left ${
                 config.pricing.model === "flat_buyin"
                   ? "bg-turf/15 border-turf"
@@ -103,31 +110,76 @@ export default function SkinsStep({
             >
               <div className="text-[13.5px] font-semibold mb-1">Flat Per-Player Buy-In</div>
               <div className="text-[11px] text-chalk-dim mb-2">
-                A fixed entry fee per player — the pot is split evenly across every skin won.
+                A fixed entry fee per player — Gross and Net each have their own pot, split evenly
+                across that pot's own skins won.
               </div>
-              {config.pricing.model === "flat_buyin" && (
-                <div onClick={e => e.stopPropagation()}>
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <span className="text-chalk-dim text-sm">$</span>
-                    <input
-                      type="number"
-                      min={0}
-                      step="1"
-                      value={config.pricing.buyInPerPlayer}
-                      onChange={e =>
-                        setConfig({
-                          ...config,
-                          pricing: { model: "flat_buyin", buyInPerPlayer: parseFloat(e.target.value) || 0 },
-                        })
-                      }
-                      className="w-24 bg-surface-raised border border-[color:var(--border-strong)] rounded-lg px-2.5 py-2 text-sm font-mono"
-                    />
-                    <span className="text-chalk-dim text-[11px]">entry fee per player</span>
-                  </div>
-                  {pot !== null && (
-                    <div className="text-[11px] text-chalk-dim font-mono">
-                      Total pot: {playerCount} × ${config.pricing.buyInPerPlayer.toFixed(2)} = $
-                      {pot.toFixed(2)}
+              {flatBuyIn && (
+                <div onClick={e => e.stopPropagation()} className="flex flex-col gap-2.5">
+                  {config.gross && (
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-chalk-dim text-sm">$</span>
+                        <input
+                          type="number"
+                          min={0}
+                          step="1"
+                          value={flatBuyIn.buyInPerPlayerGross}
+                          onChange={e =>
+                            setConfig({
+                              ...config,
+                              pricing: {
+                                model: "flat_buyin",
+                                buyInPerPlayerGross: parseFloat(e.target.value) || 0,
+                                buyInPerPlayerNet: flatBuyIn.buyInPerPlayerNet,
+                              },
+                            })
+                          }
+                          className="w-24 bg-surface-raised border border-[color:var(--border-strong)] rounded-lg px-2.5 py-2 text-sm font-mono"
+                        />
+                        <span className="text-chalk-dim text-[11px]">gross entry fee per player</span>
+                      </div>
+                      {grossPot !== null && (
+                        <div className="text-[11px] text-chalk-dim font-mono">
+                          Gross pot: {playerCount} × ${flatBuyIn.buyInPerPlayerGross.toFixed(2)} = $
+                          {grossPot.toFixed(2)}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {config.net && (
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-chalk-dim text-sm">$</span>
+                        <input
+                          type="number"
+                          min={0}
+                          step="1"
+                          value={flatBuyIn.buyInPerPlayerNet}
+                          onChange={e =>
+                            setConfig({
+                              ...config,
+                              pricing: {
+                                model: "flat_buyin",
+                                buyInPerPlayerGross: flatBuyIn.buyInPerPlayerGross,
+                                buyInPerPlayerNet: parseFloat(e.target.value) || 0,
+                              },
+                            })
+                          }
+                          className="w-24 bg-surface-raised border border-[color:var(--border-strong)] rounded-lg px-2.5 py-2 text-sm font-mono"
+                        />
+                        <span className="text-chalk-dim text-[11px]">net entry fee per player</span>
+                      </div>
+                      {netPot !== null && (
+                        <div className="text-[11px] text-chalk-dim font-mono">
+                          Net pot: {playerCount} × ${flatBuyIn.buyInPerPlayerNet.toFixed(2)} = $
+                          {netPot.toFixed(2)}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {grossPot !== null && netPot !== null && (
+                    <div className="text-[11px] text-chalk-dim font-mono border-t border-[color:var(--border)] pt-1.5">
+                      Total pot: ${(grossPot + netPot).toFixed(2)}
                     </div>
                   )}
                 </div>

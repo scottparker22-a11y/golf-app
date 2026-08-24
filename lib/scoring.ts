@@ -127,14 +127,17 @@ export function skinsWonByPlayer(skinsResults: SkinsHoleResult[]) {
 
 // ── SKINS PAYOUT — pricing, pot, and per-player cash ────────────
 // Model A: a fixed dollar amount per skin — the pot floats with how
-// many skins actually get won.
-// Model B: a fixed pot (players × buy-in) split evenly across every
-// skin won, so the per-skin value isn't known until skins are
-// counted — and if literally zero skins were won, everyone gets
-// refunded rather than dividing by zero.
+// many skins actually get won. The same rate applies to both the
+// gross and net tracks.
+// Model B: a flat buy-in per player — but gross and net are separate
+// games with separate money on the table, so each gets its own
+// buy-in and its own pot, split evenly across that track's own skins
+// (not known until skins are counted — and if a track won zero
+// skins, everyone gets that track's buy-in refunded rather than
+// dividing by zero).
 export type SkinsPricing =
   | { model: "per_skin"; amountPerSkin: number }
-  | { model: "flat_buyin"; buyInPerPlayer: number };
+  | { model: "flat_buyin"; buyInPerPlayerGross: number; buyInPerPlayerNet: number };
 
 export type SkinsGameConfig = {
   gross: boolean;
@@ -152,20 +155,43 @@ export type SkinsPlayerPayout = {
   cash: number;
 };
 
+/** One track's (gross or net) own pot/pricing — see calculateSkinsPayout. */
+export type SkinsTrackPayout = {
+  pot: number;
+  /** Dollars per skin — fixed under Model A, computed (and provisional until the round finishes) under Model B. */
+  perSkinValue: number;
+  /** Model B only: zero skins were won on this track, so refund every player's buy-in instead of dividing by zero. */
+  refundAll: boolean;
+};
+
 export type SkinsPayoutSummary = {
   grossResults: SkinsHoleResult[];
   netResults: SkinsHoleResult[];
   totalSkinsAwarded: number;
+  /** Combined gross + net pot — null out a track that isn't being played. */
   pot: number;
-  /** Dollars per skin — fixed under Model A, computed (and provisional until the round finishes) under Model B. */
-  perSkinValue: number;
-  /** Model B only: zero skins were won across the whole round, so refund every player's buy-in instead of dividing by zero. */
-  refundAll: boolean;
+  gross: SkinsTrackPayout | null;
+  net: SkinsTrackPayout | null;
   players: SkinsPlayerPayout[];
 };
 
 function round2(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
+function trackPayout(
+  totalSkins: number,
+  playerCount: number,
+  pricing: SkinsPricing,
+  flatBuyIn: number
+): SkinsTrackPayout {
+  if (pricing.model === "per_skin") {
+    const perSkinValue = pricing.amountPerSkin;
+    return { pot: round2(totalSkins * perSkinValue), perSkinValue, refundAll: false };
+  }
+  const pot = round2(flatBuyIn * playerCount);
+  if (totalSkins === 0) return { pot, perSkinValue: 0, refundAll: true };
+  return { pot, perSkinValue: pot / totalSkins, refundAll: false };
 }
 
 export function calculateSkinsPayout(
@@ -191,29 +217,33 @@ export function calculateSkinsPayout(
   // these two tracks run independently and their totals just add.
   const totalSkinsAwarded = totalGrossSkins + totalNetSkins;
 
-  let pot: number;
-  let perSkinValue: number;
-  let refundAll = false;
+  const gross = config.gross
+    ? trackPayout(
+        totalGrossSkins,
+        players.length,
+        config.pricing,
+        config.pricing.model === "flat_buyin" ? config.pricing.buyInPerPlayerGross : 0
+      )
+    : null;
+  const net = config.net
+    ? trackPayout(
+        totalNetSkins,
+        players.length,
+        config.pricing,
+        config.pricing.model === "flat_buyin" ? config.pricing.buyInPerPlayerNet : 0
+      )
+    : null;
 
-  if (config.pricing.model === "per_skin") {
-    perSkinValue = config.pricing.amountPerSkin;
-    pot = round2(totalSkinsAwarded * perSkinValue);
-  } else {
-    pot = round2(config.pricing.buyInPerPlayer * players.length);
-    if (totalSkinsAwarded === 0) {
-      refundAll = true;
-      perSkinValue = 0;
-    } else {
-      perSkinValue = pot / totalSkinsAwarded;
-    }
-  }
+  const pot = round2((gross?.pot ?? 0) + (net?.pot ?? 0));
 
   const playerPayouts: SkinsPlayerPayout[] = players
     .map(p => {
       const grossSkins = grossByPlayer[p.id] ?? 0;
       const netSkins = netByPlayer[p.id] ?? 0;
       const totalSkins = grossSkins + netSkins;
-      const cash = refundAll ? 0 : round2(totalSkins * perSkinValue);
+      const grossCash = gross && !gross.refundAll ? grossSkins * gross.perSkinValue : 0;
+      const netCash = net && !net.refundAll ? netSkins * net.perSkinValue : 0;
+      const cash = round2(grossCash + netCash);
       return { playerId: p.id, name: p.name, grossSkins, netSkins, totalSkins, cash };
     })
     .sort((a, b) => b.cash - a.cash || b.totalSkins - a.totalSkins);
@@ -223,8 +253,8 @@ export function calculateSkinsPayout(
     netResults,
     totalSkinsAwarded,
     pot,
-    perSkinValue: round2(perSkinValue),
-    refundAll,
+    gross: gross && { ...gross, perSkinValue: round2(gross.perSkinValue) },
+    net: net && { ...net, perSkinValue: round2(net.perSkinValue) },
     players: playerPayouts,
   };
 }
