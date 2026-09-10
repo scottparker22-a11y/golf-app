@@ -14,6 +14,7 @@
 import "server-only";
 import { createHmac, timingSafeEqual } from "crypto";
 import { NextResponse, type NextRequest } from "next/server";
+import { isRealAdminSession } from "./supabaseServer";
 
 // Structural type instead of importing Next's internal cookies() return
 // type — matches both next/headers' ReadonlyRequestCookies and a plain
@@ -98,4 +99,18 @@ export function requireAdmin(request: NextRequest, tripId: string): NextResponse
     return NextResponse.json({ error: "Admin access required." }, { status: 401 });
   }
   return null;
+}
+
+/**
+ * Same as requireAdmin, but also accepts a real logged-in Supabase
+ * Auth admin session (profiles.role = 'admin') — the bridge every NEW
+ * admin route should use going forward, and what existing routes
+ * migrate to one at a time (see lib/useIsAdmin.ts / the /setup route
+ * guard for the same either-works bridge elsewhere).
+ */
+export async function requireAdminBridged(request: NextRequest, tripId: string): Promise<NextResponse | null> {
+  const token = request.cookies.get(ADMIN_COOKIE_NAME)?.value;
+  if (verifyAdminToken(token, tripId)) return null;
+  if (await isRealAdminSession()) return null;
+  return NextResponse.json({ error: "Admin access required." }, { status: 401 });
 }

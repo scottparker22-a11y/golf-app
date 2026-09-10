@@ -3,24 +3,24 @@ import { redirect } from "next/navigation";
 import { getAdminFlag } from "@/lib/adminAuth";
 import { isRealAdminSession } from "@/lib/supabaseServer";
 import { DEMO_TRIP_ID } from "@/lib/rounds";
-import RyderCupSetupPanel from "@/components/RyderCupSetupPanel";
+import ScorekeeperAssignmentPanel from "@/components/ScorekeeperAssignmentPanel";
 import TripNav from "@/components/TripNav";
 import PageNav from "@/components/PageNav";
 
-// Admin-only, reachable from Leaderboard.tsx's "this round hasn't set
-// up its Ryder Cup matches yet" prompt (a round set up as Ryder Cup
-// with no matches never gets a games row — see
-// components/RyderCupSetupPanel.tsx). Same route-guard pattern as
-// app/trip/[tripId]/setup/page.tsx — either the legacy shared PIN or
-// a real admin session unlocks this.
-export default async function RyderCupSetupPage({
+// Admin-only. Same route-guard pattern as app/trip/[tripId]/setup —
+// either the legacy shared PIN or a real admin session unlocks this.
+// Grants/revokes real Scorekeeper access (scorekeeper_assignments) for
+// an existing round, live or not — separate from the cosmetic
+// scorer_player_id picked during round setup (see
+// components/setup/ScorekeeperStep.tsx).
+export default async function ScorekeepersPage({
   params,
 }: {
   params: { tripId: string; roundId: string };
 }) {
   const isAdmin = getAdminFlag(cookies(), DEMO_TRIP_ID) || (await isRealAdminSession());
   if (!isAdmin) {
-    redirect(`/trip/${params.tripId}/admin?next=/trip/${params.tripId}/round/${params.roundId}/ryder-cup-setup`);
+    redirect(`/trip/${params.tripId}/admin?next=/trip/${params.tripId}/round/${params.roundId}/scorekeepers`);
   }
 
   return (
@@ -31,13 +31,13 @@ export default async function RyderCupSetupPage({
           <span className="w-[7px] h-[7px] rounded-full bg-turf shadow-[0_0_0_3px_rgba(111,207,151,0.22)]" />
           Setup
         </div>
-        <h1 className="font-display font-extrabold text-3xl leading-none mb-1">Ryder Cup</h1>
-        <div className="text-sm text-chalk-dim font-medium">Teams &amp; matches for this round</div>
+        <h1 className="font-display font-extrabold text-3xl leading-none mb-1">Scorekeepers</h1>
+        <div className="text-sm text-chalk-dim font-medium">Who can enter scores for this round</div>
       </div>
 
       <TripNav tripId={params.tripId} roundId={params.roundId} />
 
-      <RyderCupSetupPanel tripId={params.tripId} roundId={params.roundId} />
+      <ScorekeeperAssignmentPanel roundId={params.roundId} />
     </main>
   );
 }
