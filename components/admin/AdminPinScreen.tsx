@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useIsAdmin } from "@/lib/useIsAdmin";
 import PageNav from "@/components/PageNav";
@@ -109,6 +110,16 @@ export default function AdminPinScreen({ tripId }: { tripId: string }) {
             >
               {submitting ? "…" : pinSet ? "Unlock" : "Set PIN"}
             </button>
+
+            {/* Bridge while migrating to real per-person accounts —
+                once an admin has their own login, this is the faster
+                path (see lib/useIsAdmin.ts). */}
+            <Link
+              href={`/login?next=${encodeURIComponent(next)}`}
+              className="block mt-4 text-center text-[12.5px] font-semibold text-chalk-dim underline"
+            >
+              Have an account? Log in instead →
+            </Link>
           </div>
         )}
       </div>

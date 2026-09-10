@@ -31,6 +31,7 @@ import SkinsStep from "./SkinsStep";
 import RoundsStep from "./RoundsStep";
 import ScorekeeperStep from "./ScorekeeperStep";
 import PageNav from "@/components/PageNav";
+import { signOut, useSession } from "@/lib/auth";
 
 // A single choice per round — not independent toggles. A trip can
 // still have a Tournament and a Ryder Cup both running at once (see
@@ -73,6 +74,7 @@ const LAST_TAB: TabId = "scorer";
 
 export default function SetupWizard({ tripId }: { tripId: string }) {
   const router = useRouter();
+  const { session } = useSession();
   const [tab, setTab] = useState<TabId>("format");
 
   const [courseId, setCourseId] = useState<string | null>(null);
@@ -344,8 +346,18 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
   return (
     <main className="max-w-[460px] mx-auto min-h-screen pb-10">
       <PageNav />
-      <div className="px-5 pt-6 pb-4 border-b border-[color:var(--border)]">
+      <div className="px-5 pt-6 pb-4 border-b border-[color:var(--border)] flex items-center justify-between gap-3">
         <div className="font-display font-extrabold text-[28px]">Trip Set Up</div>
+        {/* Only shown for a real logged-in session (not the shared PIN,
+            which has no "account" to log out of) — see lib/auth.ts. */}
+        {session && (
+          <button
+            onClick={() => signOut().then(() => router.push("/"))}
+            className="flex-shrink-0 text-[11.5px] font-semibold text-chalk-dim underline"
+          >
+            Log Out
+          </button>
+        )}
       </div>
 
       <div className="flex gap-1.5 px-4 py-3.5 overflow-x-auto border-b border-[color:var(--border)]">

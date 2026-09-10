@@ -7,17 +7,22 @@
 // server-only) so nothing here ever risks getting bundled into
 // client JS.
 //
-// Swapping to real Supabase Auth later: point this at
-// supabase.auth.getSession() (or similar) instead of
-// /api/admin/status — every consumer (AdminButton, AdminPinScreen)
-// keeps working unchanged since they only ever see { isAdmin, loading }.
+// Mid-migration to real Supabase Auth (see lib/auth.ts): isAdmin is
+// true if EITHER the legacy shared PIN cookie says so, OR a real
+// logged-in Supabase Auth session has a profiles.role of 'admin'.
+// Every consumer (AdminButton, AdminPinScreen) keeps working
+// unchanged since they only ever see { isAdmin, loading } — once every
+// admin has a real account and the PIN is retired, this drops the
+// /api/admin/status half and keeps only the profile check.
 
 import { useEffect, useState } from "react";
+import { useProfile } from "./auth";
 
 export function useIsAdmin() {
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [pinAdmin, setPinAdmin] = useState(false);
   const [pinSet, setPinSet] = useState(true);
-  const [loading, setLoading] = useState(true);
+  const [pinLoading, setPinLoading] = useState(true);
+  const { profile, loading: profileLoading } = useProfile();
 
   useEffect(() => {
     let cancelled = false;
@@ -25,20 +30,26 @@ export function useIsAdmin() {
       .then(res => res.json())
       .then((data: { isAdmin: boolean; pinSet: boolean }) => {
         if (cancelled) return;
-        setIsAdmin(!!data.isAdmin);
+        setPinAdmin(!!data.isAdmin);
         setPinSet(!!data.pinSet);
       })
       .catch(() => {
-        // Non-fatal — treat as "not admin" and let the PIN screen
-        // handle it from there.
+        // Non-fatal — treat as "not admin via PIN" and fall back to
+        // the profile check below.
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setPinLoading(false);
       });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  return { isAdmin, pinSet, loading };
+  const profileAdmin = !!profile && profile.role === "admin" && profile.active;
+
+  return {
+    isAdmin: pinAdmin || profileAdmin,
+    pinSet,
+    loading: pinLoading || profileLoading,
+  };
 }
