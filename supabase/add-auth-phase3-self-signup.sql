@@ -67,12 +67,12 @@ begin
     'tournaments'
   ]
   loop
-    execute format('drop policy if exists %L on %I', 'open read', t);
+    execute format('drop policy if exists %I on %I', 'open read', t);
     if not exists (
       select 1 from pg_policies where tablename = t and policyname = 'authenticated read'
     ) then
       execute format(
-        'create policy %L on %I for select using (auth.uid() is not null)',
+        'create policy %I on %I for select using (auth.uid() is not null)',
         'authenticated read', t
       );
     end if;
