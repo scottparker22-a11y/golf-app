@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
   const { tripId, totalRounds, usesHandicap, courseOrder } = await request.json();
   const resolvedTripId = tripId ?? DEMO_TRIP_ID;
 
-  const denied = requireAdmin(request, resolvedTripId);
+  const denied = await requireAdmin();
   if (denied) return denied;
 
   const rounds = Number(totalRounds);

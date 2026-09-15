@@ -9,7 +9,7 @@ import { DEMO_TEE_NAME, DEMO_TRIP_ID, STANDARD_HOLES } from "@/lib/rounds";
 // change that makes this necessary (the anon key can no longer insert
 // into courses/holes at all).
 export async function POST(request: NextRequest) {
-  const denied = requireAdmin(request, DEMO_TRIP_ID);
+  const denied = await requireAdmin();
   if (denied) return denied;
 
   const { name, location } = await request.json();

@@ -5,7 +5,7 @@ import { DEMO_TRIP_ID, FK_VIOLATION } from "@/lib/rounds";
 
 // Admin-only. Mirrors the old client-side deletePlayer() in lib/rounds.ts.
 export async function DELETE(request: NextRequest, { params }: { params: { playerId: string } }) {
-  const denied = requireAdmin(request, DEMO_TRIP_ID);
+  const denied = await requireAdmin();
   if (denied) return denied;
 
   const admin = getSupabaseAdmin();

@@ -31,6 +31,28 @@ export async function signInWithPassword(email: string, password: string): Promi
   if (error) throw new Error(error.message);
 }
 
+/**
+ * Open self-signup — anyone can create their own account (role
+ * defaults to 'player', set server-side by the on_auth_user_created
+ * trigger in supabase/add-auth-phase3-self-signup.sql, never trusted
+ * from the client). Returns true if a session was created
+ * immediately (email confirmation off), false if Supabase requires
+ * confirming the email first.
+ */
+export async function signUpWithPassword(
+  email: string,
+  password: string,
+  displayName: string
+): Promise<{ confirmedImmediately: boolean }> {
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: { data: { display_name: displayName } },
+  });
+  if (error) throw new Error(error.message);
+  return { confirmedImmediately: !!data.session };
+}
+
 export async function signOut(): Promise<void> {
   const { error } = await supabase.auth.signOut();
   if (error) throw new Error(error.message);

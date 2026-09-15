@@ -1,8 +1,5 @@
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { getAdminFlag } from "@/lib/adminAuth";
 import { isRealAdminSession } from "@/lib/supabaseServer";
-import { DEMO_TRIP_ID } from "@/lib/rounds";
 import RyderCupSetupPanel from "@/components/RyderCupSetupPanel";
 import TripNav from "@/components/TripNav";
 import PageNav from "@/components/PageNav";
@@ -11,16 +8,15 @@ import PageNav from "@/components/PageNav";
 // up its Ryder Cup matches yet" prompt (a round set up as Ryder Cup
 // with no matches never gets a games row — see
 // components/RyderCupSetupPanel.tsx). Same route-guard pattern as
-// app/trip/[tripId]/setup/page.tsx — either the legacy shared PIN or
-// a real admin session unlocks this.
+// app/trip/[tripId]/setup/page.tsx.
 export default async function RyderCupSetupPage({
   params,
 }: {
   params: { tripId: string; roundId: string };
 }) {
-  const isAdmin = getAdminFlag(cookies(), DEMO_TRIP_ID) || (await isRealAdminSession());
+  const isAdmin = await isRealAdminSession();
   if (!isAdmin) {
-    redirect(`/trip/${params.tripId}/admin?next=/trip/${params.tripId}/round/${params.roundId}/ryder-cup-setup`);
+    redirect(`/login?next=/trip/${params.tripId}/round/${params.roundId}/ryder-cup-setup`);
   }
 
   return (

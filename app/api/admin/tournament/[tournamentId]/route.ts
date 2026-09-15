@@ -11,7 +11,7 @@ import { DEMO_TRIP_ID } from "@/lib/rounds";
 // themselves (and every score/game behind them) are untouched, they
 // just stop counting toward a Tournament leaderboard.
 export async function DELETE(request: NextRequest, { params }: { params: { tournamentId: string } }) {
-  const denied = requireAdmin(request, DEMO_TRIP_ID);
+  const denied = await requireAdmin();
   if (denied) return denied;
 
   const admin = getSupabaseAdmin();

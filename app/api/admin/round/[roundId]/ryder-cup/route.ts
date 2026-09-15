@@ -10,7 +10,7 @@ import { DEMO_TRIP_ID } from "@/lib/rounds";
 // This is the one and only place a `games` row of type ryder_cup gets
 // inserted outside of finishing the Setup Wizard.
 export async function POST(request: NextRequest, { params }: { params: { roundId: string } }) {
-  const denied = requireAdmin(request, DEMO_TRIP_ID);
+  const denied = await requireAdmin();
   if (denied) return denied;
 
   const { config, tournamentId } = await request.json();

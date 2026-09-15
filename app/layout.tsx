@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Big_Shoulders_Display, Manrope, IBM_Plex_Mono, Caveat } from "next/font/google";
+import AuthGate from "@/components/auth/AuthGate";
 import "./globals.css";
 
 const bigShoulders = Big_Shoulders_Display({
@@ -35,7 +36,9 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${bigShoulders.variable} ${manrope.variable} ${plexMono.variable} ${caveat.variable}`}>
-      <body className="font-body">{children}</body>
+      <body className="font-body">
+        <AuthGate>{children}</AuthGate>
+      </body>
     </html>
   );
 }

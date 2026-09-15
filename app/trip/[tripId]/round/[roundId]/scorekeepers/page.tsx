@@ -1,14 +1,10 @@
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { getAdminFlag } from "@/lib/adminAuth";
 import { isRealAdminSession } from "@/lib/supabaseServer";
-import { DEMO_TRIP_ID } from "@/lib/rounds";
 import ScorekeeperAssignmentPanel from "@/components/ScorekeeperAssignmentPanel";
 import TripNav from "@/components/TripNav";
 import PageNav from "@/components/PageNav";
 
-// Admin-only. Same route-guard pattern as app/trip/[tripId]/setup —
-// either the legacy shared PIN or a real admin session unlocks this.
+// Admin-only. Same route-guard pattern as app/trip/[tripId]/setup.
 // Grants/revokes real Scorekeeper access (scorekeeper_assignments) for
 // an existing round, live or not — separate from the cosmetic
 // scorer_player_id picked during round setup (see
@@ -18,9 +14,9 @@ export default async function ScorekeepersPage({
 }: {
   params: { tripId: string; roundId: string };
 }) {
-  const isAdmin = getAdminFlag(cookies(), DEMO_TRIP_ID) || (await isRealAdminSession());
+  const isAdmin = await isRealAdminSession();
   if (!isAdmin) {
-    redirect(`/trip/${params.tripId}/admin?next=/trip/${params.tripId}/round/${params.roundId}/scorekeepers`);
+    redirect(`/login?next=/trip/${params.tripId}/round/${params.roundId}/scorekeepers`);
   }
 
   return (

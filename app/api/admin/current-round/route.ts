@@ -9,7 +9,7 @@ import { DEMO_TRIP_ID } from "@/lib/rounds";
 // -selector.sql. trips has no anon/authenticated write policy at all,
 // so this is the only way this column ever gets written.
 export async function POST(request: NextRequest) {
-  const denied = requireAdmin(request, DEMO_TRIP_ID);
+  const denied = await requireAdmin();
   if (denied) return denied;
 
   const { roundId } = await request.json();

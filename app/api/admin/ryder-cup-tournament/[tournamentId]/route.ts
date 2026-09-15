@@ -10,9 +10,7 @@ import { DEMO_TRIP_ID } from "@/lib/rounds";
 // "Unassigned" section). Only ever adds/overwrites entries for the
 // ids passed in; every other player's locked-in team is untouched.
 export async function PATCH(request: NextRequest, { params }: { params: { tournamentId: string } }) {
-  // This app only ever has one trip's worth of admin PIN (DEMO_TRIP_ID)
-  // — same simplification every other admin route here makes.
-  const denied = requireAdmin(request, DEMO_TRIP_ID);
+  const denied = await requireAdmin();
   if (denied) return denied;
 
   const { teamAssignment } = await request.json();
@@ -56,7 +54,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { tourna
 // (and every score behind them) are untouched, they just stop
 // counting toward a cross-round Cup score.
 export async function DELETE(request: NextRequest, { params }: { params: { tournamentId: string } }) {
-  const denied = requireAdmin(request, DEMO_TRIP_ID);
+  const denied = await requireAdmin();
   if (denied) return denied;
 
   const admin = getSupabaseAdmin();

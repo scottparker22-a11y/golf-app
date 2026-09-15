@@ -10,7 +10,7 @@ import { runCreateRoundWithRoster } from "@/lib/admin/roundAdmin";
 // against the service-role client. See components/setup/SetupWizard.tsx
 // for the caller.
 export async function POST(request: NextRequest) {
-  const denied = requireAdmin(request, DEMO_TRIP_ID);
+  const denied = await requireAdmin();
   if (denied) return denied;
 
   const {

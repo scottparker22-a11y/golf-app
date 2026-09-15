@@ -1,7 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { requireAdminBridged } from "@/lib/adminAuth";
+import { requireAdmin } from "@/lib/adminAuth";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
-import { DEMO_TRIP_ID } from "@/lib/rounds";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -14,7 +13,7 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // different player/trip), reuses that existing user instead of
 // erroring — inviteUserByEmail's own "already registered" case.
 export async function POST(request: NextRequest) {
-  const denied = await requireAdminBridged(request, DEMO_TRIP_ID);
+  const denied = await requireAdmin();
   if (denied) return denied;
 
   const { playerId, email } = await request.json();

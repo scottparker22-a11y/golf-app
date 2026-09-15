@@ -7,7 +7,7 @@ import { DEMO_TRIP_ID } from "@/lib/rounds";
 // (PATCH status) and deleteRound() (DELETE) in lib/rounds.ts.
 
 export async function PATCH(request: NextRequest, { params }: { params: { roundId: string } }) {
-  const denied = requireAdmin(request, DEMO_TRIP_ID);
+  const denied = await requireAdmin();
   if (denied) return denied;
 
   const { status } = await request.json();
@@ -26,7 +26,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { roundI
 }
 
 export async function DELETE(request: NextRequest, { params }: { params: { roundId: string } }) {
-  const denied = requireAdmin(request, DEMO_TRIP_ID);
+  const denied = await requireAdmin();
   if (denied) return denied;
 
   const admin = getSupabaseAdmin();

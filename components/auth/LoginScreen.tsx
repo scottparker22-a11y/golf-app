@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { requestPasswordReset, signInWithPassword } from "@/lib/auth";
 import PageNav from "@/components/PageNav";
@@ -106,10 +107,17 @@ export default function LoginScreen() {
           <button
             onClick={handleForgotPassword}
             disabled={submitting}
-            className="w-full text-center text-[12.5px] font-semibold text-chalk-dim underline disabled:opacity-60"
+            className="w-full text-center text-[12.5px] font-semibold text-chalk-dim underline disabled:opacity-60 mb-4"
           >
             Forgot Password
           </button>
+
+          <Link
+            href={`/signup?next=${encodeURIComponent(next)}`}
+            className="block text-center text-[12.5px] font-semibold text-turf underline"
+          >
+            New here? Create an account
+          </Link>
         </div>
       </div>
     </main>
