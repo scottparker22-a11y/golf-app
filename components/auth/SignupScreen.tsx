@@ -18,7 +18,8 @@ export default function SignupScreen() {
   const searchParams = useSearchParams();
   const next = searchParams.get("next") || "/";
 
-  const [displayName, setDisplayName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -38,7 +39,8 @@ export default function SignupScreen() {
     setSubmitting(true);
     setError(null);
     try {
-      const { confirmedImmediately } = await signUpWithPassword(email.trim(), password, displayName.trim());
+      const displayName = `${firstName.trim()} ${lastName.trim()}`.trim();
+      const { confirmedImmediately } = await signUpWithPassword(email.trim(), password, displayName);
       if (confirmedImmediately) {
         router.push(next);
       } else {
@@ -50,7 +52,8 @@ export default function SignupScreen() {
     }
   };
 
-  const canSubmit = displayName.trim().length > 0 && email.trim().length > 0 && password.length > 0;
+  const canSubmit =
+    firstName.trim().length > 0 && lastName.trim().length > 0 && email.trim().length > 0 && password.length > 0;
 
   if (needsConfirmation) {
     return (
@@ -77,16 +80,32 @@ export default function SignupScreen() {
         <p className="text-[13px] text-chalk-dim leading-relaxed mb-8">Create your account</p>
 
         <div className="w-full max-w-[300px] text-left">
-          <label className="block text-[11px] font-semibold uppercase tracking-wide text-chalk-dim mb-1.5">
-            Your Name
-          </label>
-          <input
-            type="text"
-            autoComplete="name"
-            value={displayName}
-            onChange={e => setDisplayName(e.target.value)}
-            className="w-full mb-4 bg-surface-raised border border-[color:var(--border-strong)] rounded-lg px-3 py-3 text-[15px] outline-none focus:border-turf"
-          />
+          <div className="flex gap-3 mb-4">
+            <div className="flex-1">
+              <label className="block text-[11px] font-semibold uppercase tracking-wide text-chalk-dim mb-1.5">
+                First Name
+              </label>
+              <input
+                type="text"
+                autoComplete="given-name"
+                value={firstName}
+                onChange={e => setFirstName(e.target.value)}
+                className="w-full bg-surface-raised border border-[color:var(--border-strong)] rounded-lg px-3 py-3 text-[15px] outline-none focus:border-turf"
+              />
+            </div>
+            <div className="flex-1">
+              <label className="block text-[11px] font-semibold uppercase tracking-wide text-chalk-dim mb-1.5">
+                Last Name
+              </label>
+              <input
+                type="text"
+                autoComplete="family-name"
+                value={lastName}
+                onChange={e => setLastName(e.target.value)}
+                className="w-full bg-surface-raised border border-[color:var(--border-strong)] rounded-lg px-3 py-3 text-[15px] outline-none focus:border-turf"
+              />
+            </div>
+          </div>
 
           <label className="block text-[11px] font-semibold uppercase tracking-wide text-chalk-dim mb-1.5">
             Email
