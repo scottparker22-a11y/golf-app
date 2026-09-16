@@ -1,8 +1,21 @@
-import { createClient } from "@supabase/supabase-js";
+import { createBrowserClient } from "@supabase/ssr";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
+// createBrowserClient (not plain @supabase/supabase-js createClient)
+// is load-bearing, not cosmetic: it mirrors the session into cookies
+// as well as localStorage. lib/supabaseServer.ts's isRealAdminSession()
+// — which every /api/admin/* route and the /setup, /ryder-cup-setup,
+// /scorekeepers page guards call — reads the session from cookies via
+// @supabase/ssr's createServerClient. With the plain client, the
+// browser only ever wrote to localStorage, so the server could never
+// see a "logged in" browser's session at all: every real admin action
+// failed with "Admin access required" even for an actual admin,
+// despite the client-side UI (Admin ✓, useIsAdmin) looking correct
+// since that used this same (self-consistent but server-invisible)
+// client. Cookie-based sharing is what makes the two sides agree.
+//
 // Supabase's client makes its requests through the global fetch — in a
 // Next.js Server Component, that's Next's own patched fetch, which
 // caches responses indefinitely by default (the App Router "Data
@@ -13,7 +26,7 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 // server restarts, since the cache is persisted to .next/cache. This
 // app is live-scoring; every read should reflect the current DB
 // state, so caching is disabled outright rather than tuned.
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+export const supabase = createBrowserClient(supabaseUrl, supabaseAnonKey, {
   global: {
     fetch: (input, init) => fetch(input, { ...init, cache: "no-store" }),
   },
