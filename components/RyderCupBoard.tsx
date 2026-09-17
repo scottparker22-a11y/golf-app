@@ -11,9 +11,6 @@ import {
   calculateRyderCupMatch,
   calculateRyderCupStablefordSession,
   formatRyderCupMatchStatus,
-  ryderCupStablefordPoints,
-  stablefordPointsColor,
-  strokesReceived,
   type RyderCupGameConfig,
   type RyderCupMatchConfig,
   type RyderCupMatchResult,
@@ -184,9 +181,7 @@ export default function RyderCupBoard({
             teamAName={teamAName}
             teamBName={teamBName}
             playerName={playerName}
-            holes={holes}
-            holeScores={holeScores}
-            courseHandicaps={courseHandicaps}
+            individual={individual}
           />
         </Section>
       )}
@@ -512,24 +507,22 @@ function HoleStrip({
 }
 
 // Team USA total points vs. Team Europe total points — the banner
-// that actually decides the session (TeamStablefordTable below is
-// just the breakdown behind those two numbers).
+// that actually decides the session (TeamStablefordPlayerList below
+// is just the per-player breakdown behind those two numbers; the
+// full hole-by-hole grid lives on the Scorecard page, not here — the
+// Leaderboard just needs each player's progress and running total).
 function TeamStablefordCard({
   result,
   teamAName,
   teamBName,
   playerName,
-  holes,
-  holeScores,
-  courseHandicaps,
+  individual,
 }: {
   result: RyderCupStablefordSessionResult;
   teamAName: string;
   teamBName: string;
   playerName: (id: string) => string;
-  holes: Hole[];
-  holeScores: HoleScore[];
-  courseHandicaps: Record<string, number>;
+  individual: ReturnType<typeof calculateIndividualLeaderboard>;
 }) {
   const leaderSide = result.totalA > result.totalB ? "A" : result.totalB > result.totalA ? "B" : null;
 
@@ -577,187 +570,85 @@ function TeamStablefordCard({
         {statusText}
       </div>
 
-      <TeamStablefordTable
+      <TeamStablefordPlayerList
         playersA={result.playersA}
         playersB={result.playersB}
         playerName={playerName}
-        isNet={result.format === "stableford_net"}
-        holes={holes}
-        holeScores={holeScores}
-        courseHandicaps={courseHandicaps}
+        playerTotals={result.playerTotals}
+        totalHoles={result.totalHoles}
+        individual={individual}
+        teamAName={teamAName}
+        teamBName={teamBName}
       />
     </div>
   );
 }
 
-// Hole-by-hole strokes + Stableford points for every player in the
-// team Stableford session — one row per player (however many are on
-// each side, per the trip's Ryder Cup team split), with a divider
-// between Team A's players and Team B's. OUT/IN/TOT subtotals mirror
-// components/Scorecard.tsx's stacked strokes-over-points convention.
-// The grand totalA/totalB (the numbers that actually decide who wins
-// the session) live in the banner above this table, not repeated as
-// a row here — they're already computed once by
-// calculateRyderCupStablefordSession, no need to sum them again.
-function TeamStablefordTable({
+// Individual progress for the team Stableford session — ranked most
+// points to least, regardless of side, like any other leaderboard.
+// Just what hole each player is on and their running point total,
+// not the full hole-by-hole grid (that lives on the Scorecard page,
+// where strokes are actually entered). holesPlayed comes from the
+// same calculateIndividualLeaderboard the rest of this board already
+// computes, so "Thru N" here matches the "Thru N" match cards use.
+// Players who haven't posted a score yet (total undefined) sort last.
+function TeamStablefordPlayerList({
   playersA,
   playersB,
   playerName,
-  isNet,
-  holes,
-  holeScores,
-  courseHandicaps,
+  playerTotals,
+  totalHoles,
+  individual,
+  teamAName,
+  teamBName,
 }: {
   playersA: string[];
   playersB: string[];
   playerName: (id: string) => string;
-  isNet: boolean;
-  holes: Hole[];
-  holeScores: HoleScore[];
-  courseHandicaps: Record<string, number>;
+  playerTotals: Record<string, number | undefined>;
+  totalHoles: number;
+  individual: ReturnType<typeof calculateIndividualLeaderboard>;
+  teamAName: string;
+  teamBName: string;
 }) {
-  const frontHoles = holes.filter(h => h.number <= 9);
-  const backHoles = holes.filter(h => h.number > 9);
-  const hasBack = backHoles.length > 0;
-  const sumPar = (hs: Hole[]) => hs.reduce((sum, h) => sum + h.par, 0);
-
-  const strokesFor = (playerId: string, holeNumber: number) =>
-    holeScores.find(s => s.playerId === playerId && s.holeNumber === holeNumber)?.strokes;
-
-  const pointsFor = (playerId: string, h: Hole, courseHandicap: number) => {
-    const strokes = strokesFor(playerId, h.number);
-    return strokes === undefined ? undefined : ryderCupStablefordPoints(strokes, h.par, courseHandicap, h.strokeIndex, isNet);
-  };
-
-  const sumStrokes = (playerId: string, hs: Hole[]) => {
-    const entered = hs.map(h => strokesFor(playerId, h.number)).filter((s): s is number => s !== undefined);
-    return entered.length ? entered.reduce((sum, s) => sum + s, 0) : undefined;
-  };
-
-  const sumPoints = (playerId: string, hs: Hole[], courseHandicap: number) => {
-    const entered = hs.map(h => pointsFor(playerId, h, courseHandicap)).filter((p): p is number => p !== undefined);
-    return entered.length ? entered.reduce((sum, p) => sum + p, 0) : undefined;
-  };
-
-  const subtotalCellClass = "px-1.5 py-1 text-center bg-surface-raised border-l border-[color:var(--border-strong)]";
-  const subtotalHeaderClass = subtotalCellClass + " text-chalk-dim font-semibold text-[10px] uppercase";
-
-  const renderSubtotal = (playerId: string, hs: Hole[], courseHandicap: number) => (
-    <td className={subtotalCellClass}>
-      <div className="font-mono font-bold text-[13px] text-chalk">{sumStrokes(playerId, hs) ?? "–"}</div>
-      <div className="font-mono text-[11px] font-bold leading-tight text-chalk-dim">
-        {sumPoints(playerId, hs, courseHandicap) ?? "–"}
-      </div>
-    </td>
-  );
-
-  const renderHoleCell = (playerId: string, h: Hole, courseHandicap: number) => {
-    const strokes = strokesFor(playerId, h.number);
-    const points = pointsFor(playerId, h, courseHandicap);
-    const getsStroke = isNet && strokesReceived(h, courseHandicap) > 0;
-    return (
-      <td key={h.number} className="relative text-center px-1 py-1">
-        {getsStroke && <span className="absolute top-0 right-0.5 w-[5px] h-[5px] rounded-full bg-sand" />}
-        <div className="font-mono font-bold text-[13px] text-chalk">{strokes ?? "–"}</div>
-        <div className={`font-mono text-[11px] font-bold leading-tight ${points !== undefined ? stablefordPointsColor(points) : "text-chalk-dim"}`}>
-          {points ?? ""}
-        </div>
-      </td>
-    );
-  };
-
-  const renderPlayerRow = (playerId: string) => {
-    const courseHandicap = courseHandicaps[playerId] ?? 0;
-    return (
-      <tr key={playerId}>
-        <td className="sticky left-0 z-10 bg-surface pr-2 py-1 font-semibold text-[12px] whitespace-nowrap">
-          {playerName(playerId)}
-        </td>
-        {frontHoles.map(h => renderHoleCell(playerId, h, courseHandicap))}
-        {hasBack && renderSubtotal(playerId, frontHoles, courseHandicap)}
-        {backHoles.map(h => renderHoleCell(playerId, h, courseHandicap))}
-        {hasBack && renderSubtotal(playerId, backHoles, courseHandicap)}
-        {renderSubtotal(playerId, holes, courseHandicap)}
-      </tr>
-    );
-  };
+  const ranked = [
+    ...playersA.map(id => ({ id, side: "A" as const })),
+    ...playersB.map(id => ({ id, side: "B" as const })),
+  ].sort((a, b) => {
+    const at = playerTotals[a.id];
+    const bt = playerTotals[b.id];
+    if (at === undefined && bt === undefined) return 0;
+    if (at === undefined) return 1;
+    if (bt === undefined) return -1;
+    return bt - at;
+  });
 
   return (
     <div className="mt-2.5">
-      <div className="overflow-x-auto -mx-3.5 px-3.5">
-        <table className="border-collapse">
-          <thead>
-            <tr>
-              <th className="sticky left-0 z-10 bg-surface text-left pr-2 py-1 text-chalk-dim font-semibold text-[10px] uppercase whitespace-nowrap">
-                Hole
-              </th>
-              {frontHoles.map(h => (
-                <th key={h.number} className="px-1 py-1 text-chalk-dim font-semibold text-center text-[11px] w-[30px]">
-                  {h.number}
-                </th>
-              ))}
-              {hasBack && <th className={subtotalHeaderClass}>Out</th>}
-              {backHoles.map(h => (
-                <th key={h.number} className="px-1 py-1 text-chalk-dim font-semibold text-center text-[11px] w-[30px]">
-                  {h.number}
-                </th>
-              ))}
-              {hasBack && <th className={subtotalHeaderClass}>In</th>}
-              <th className={subtotalHeaderClass}>Tot</th>
-            </tr>
-            <tr>
-              <th className="sticky left-0 z-10 bg-surface text-left pr-2 py-1 text-chalk-dim font-medium text-[10px] whitespace-nowrap">
-                Par
-              </th>
-              {frontHoles.map(h => (
-                <th key={h.number} className="px-1 py-1 text-chalk-dim font-mono text-center text-[11px]">
-                  {h.par}
-                </th>
-              ))}
-              {hasBack && <th className={subtotalCellClass + " font-mono text-[11px]"}>{sumPar(frontHoles)}</th>}
-              {backHoles.map(h => (
-                <th key={h.number} className="px-1 py-1 text-chalk-dim font-mono text-center text-[11px]">
-                  {h.par}
-                </th>
-              ))}
-              {hasBack && <th className={subtotalCellClass + " font-mono text-[11px]"}>{sumPar(backHoles)}</th>}
-              <th className={subtotalCellClass + " font-mono text-[11px]"}>{sumPar(holes)}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {playersA.map(renderPlayerRow)}
-            {playersA.length > 0 && playersB.length > 0 && (
-              <tr aria-hidden className="h-2">
-                <td className="sticky left-0 z-10 bg-fairway-950 p-0" />
-                <td colSpan={100} className="bg-fairway-950 p-0" />
-              </tr>
-            )}
-            {playersB.map(renderPlayerRow)}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2.5 text-[10.5px] text-chalk-dim">
-        <LegendDot colorClass="bg-turf" label="Birdie+" />
-        <LegendDot colorClass="bg-chalk-dim" label="Par/Bogey" />
-        <LegendDot colorClass="bg-flag" label="Dbl+" />
-        <LegendDot colorClass="bg-sand" label="= stroke hole" />
-      </div>
-
-      <div className="mt-2 p-2.5 bg-surface-raised rounded-lg text-[10.5px] text-chalk-dim leading-relaxed">
-        <span className="font-semibold text-chalk">Top number</span> = strokes entered by the scorekeeper.{" "}
-        <span className="font-semibold text-chalk">Small number below</span> = Stableford points for that hole,
-        colored by outcome. The sand-colored dot marks a hole where that player received a handicap stroke.
-      </div>
+      {ranked.map(({ id, side }, i) => {
+        const holesPlayed = individual.find(p => p.playerId === id)?.holesPlayed ?? 0;
+        const thruLabel = holesPlayed === 0 ? "Not started" : holesPlayed >= totalHoles ? "F" : `Thru ${holesPlayed}`;
+        const total = playerTotals[id];
+        return (
+          <div
+            key={id}
+            className="flex items-center gap-2.5 py-1.5 border-b border-[color:var(--border)] last:border-b-0"
+          >
+            <div className="w-5 flex-shrink-0 text-[11px] font-bold text-chalk-dim text-center">{i + 1}</div>
+            <div className="min-w-0 flex-1">
+              <div className="text-[13px] font-semibold truncate">{playerName(id)}</div>
+              <div className="text-[10.5px] text-chalk-dim">
+                <span className={side === "A" ? "text-turf" : "text-flag"}>{side === "A" ? teamAName : teamBName}</span>
+                {" · "}
+                {thruLabel}
+              </div>
+            </div>
+            <div className="flex-shrink-0 text-[15px] font-mono font-bold text-chalk">
+              {total ?? "–"} <span className="text-[10.5px] font-sans font-semibold text-chalk-dim">pts</span>
+            </div>
+          </div>
+        );
+      })}
     </div>
-  );
-}
-
-function LegendDot({ colorClass, label }: { colorClass: string; label: string }) {
-  return (
-    <span className="inline-flex items-center gap-1">
-      <span className={`w-[7px] h-[7px] rounded-full flex-shrink-0 ${colorClass}`} />
-      {label}
-    </span>
   );
 }
