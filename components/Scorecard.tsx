@@ -6,11 +6,14 @@ import {
   approxCourseHandicap,
   calculateTwoManMatchPlay,
   formatTwoManMargin,
+  ryderCupStablefordPoints,
   strokesReceived,
   usesPairing,
+  type RyderCupMatchFormat,
   type TwoManMatchPlayResult,
 } from "@/lib/scoring";
 import { useLiveRound } from "@/lib/liveRound";
+import { fetchRyderCupGame } from "@/lib/rounds";
 
 // Same color scale everywhere strokes-relative-to-par shows up on the
 // Scorecard — the grid cells and ScoreStatSheet's Score stepper alike.
@@ -21,6 +24,19 @@ function relToParClass(strokes: number | undefined, par: number): string {
   if (strokes === par + 1) return "text-sand";
   return "text-flag";
 }
+
+// Coarser 3-bucket scale for the Stableford points line under each
+// hole's strokes — deliberately not the same 4-bucket scale as
+// relToParClass above (par and bogey share a color here; the points
+// table already tells them apart as 2 vs 1, no need for color to
+// double up on that).
+function stablefordPointsColor(points: number): string {
+  if (points >= 4) return "text-turf"; // birdie or better (a hole-in-one's 10 included)
+  if (points === -1) return "text-flag"; // double bogey or worse
+  return "text-chalk"; // par or bogey
+}
+
+const STABLEFORD_FORMATS: RyderCupMatchFormat[] = ["stableford_net", "stableford_gross"];
 
 export default function Scorecard({ roundId }: { roundId: string }) {
   const [mode, setMode] = useState<"players" | "teams">("players");
@@ -36,6 +52,39 @@ export default function Scorecard({ roundId }: { roundId: string }) {
   // Live, shared with every other device scoring this same round.
   const { loading, error, players, holes, teams, holeScores, trackStats, setStroke, setHoleStat, clearStroke } =
     useLiveRound(roundId);
+
+  // Fetch-once, not live (same pattern as Leaderboard.tsx's skinsConfig)
+  // — just needed to know which players are in a Stableford Ryder Cup
+  // match, and whether it's the net or gross variant, so their grid
+  // cells can show points alongside strokes (see stablefordFormatByPlayer
+  // below). Every other session type/format leaves the grid untouched.
+  const [ryderCupMatches, setRyderCupMatches] = useState<
+    { format: RyderCupMatchFormat; teamAPlayerIds: string[]; teamBPlayerIds: string[] }[]
+  >([]);
+  useEffect(() => {
+    let cancelled = false;
+    fetchRyderCupGame(roundId)
+      .then(game => {
+        if (!cancelled && game) setRyderCupMatches(game.config.matches);
+      })
+      .catch(() => {
+        // Non-fatal — the grid just stays plain-strokes-only.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [roundId]);
+
+  const stablefordFormatByPlayer = useMemo(() => {
+    const map: Record<string, "stableford_net" | "stableford_gross"> = {};
+    for (const match of ryderCupMatches) {
+      if (!STABLEFORD_FORMATS.includes(match.format)) continue;
+      for (const id of [...match.teamAPlayerIds, ...match.teamBPlayerIds]) {
+        map[id] = match.format as "stableford_net" | "stableford_gross";
+      }
+    }
+    return map;
+  }, [ryderCupMatches]);
 
   const courseHandicaps = useMemo(() => {
     const map: Record<string, number> = {};
@@ -99,6 +148,22 @@ export default function Scorecard({ roundId }: { roundId: string }) {
       .map(h => scoreFor(playerId, h.number))
       .filter((s): s is number => s !== undefined);
     return entered.length ? entered.reduce((sum, s) => sum + s, 0) : undefined;
+  };
+
+  // Same idea as sumStrokes, but totals this player's Stableford
+  // points instead — only ever called for a player in a Stableford
+  // Ryder Cup match (see stablefordFormatByPlayer above).
+  const sumStablefordPoints = (playerId: string, hs: Hole[], format: "stableford_net" | "stableford_gross") => {
+    const courseHandicap = courseHandicapFor(playerId);
+    const entered = hs
+      .map(h => {
+        const strokes = scoreFor(playerId, h.number);
+        return strokes === undefined
+          ? undefined
+          : ryderCupStablefordPoints(strokes, h.par, courseHandicap, h.strokeIndex, format === "stableford_net");
+      })
+      .filter((p): p is number => p !== undefined);
+    return entered.length ? entered.reduce((sum, p) => sum + p, 0) : undefined;
   };
 
   const subtotalHeaderClass =
@@ -293,6 +358,10 @@ export default function Scorecard({ roundId }: { roundId: string }) {
                     const p = players.find(pl => pl.id === playerId);
                     if (!p) return null;
                     const courseHandicap = courseHandicapFor(playerId);
+                    // Set only for a player in a stableford_net/
+                    // stableford_gross Ryder Cup match — everyone else's
+                    // row renders exactly as it always has.
+                    const stablefordFormat = stablefordFormatByPlayer[playerId];
 
                     const renderHoleCell = (h: Hole) => {
                       const strokes = scoreFor(playerId, h.number);
@@ -308,45 +377,83 @@ export default function Scorecard({ roundId }: { roundId: string }) {
                           ? "border-sand"
                           : "border-[color:var(--border-strong)]"
                       }`;
+                      const points =
+                        stablefordFormat && strokes !== undefined
+                          ? ryderCupStablefordPoints(
+                              strokes,
+                              h.par,
+                              courseHandicap,
+                              h.strokeIndex,
+                              stablefordFormat === "stableford_net"
+                            )
+                          : undefined;
                       return (
                         <td key={h.number} className="p-0.5">
-                          <div className="relative">
-                            {trackStats ? (
-                              // A native number input pops the on-screen
-                              // keyboard, which then covers (or fights
-                              // with) the stat sheet on mobile — so with
-                              // stats on, the cell itself is just a
-                              // button that opens the combined score +
-                              // stat sheet (see ScoreStatSheet) instead
-                              // of taking direct keyboard input.
-                              <button
-                                type="button"
-                                onClick={() => handleCellClick(team.id, playerId, h.number)}
-                                className={cellClass}
+                          <div className="flex flex-col items-center">
+                            <div className="relative">
+                              {trackStats ? (
+                                // A native number input pops the on-screen
+                                // keyboard, which then covers (or fights
+                                // with) the stat sheet on mobile — so with
+                                // stats on, the cell itself is just a
+                                // button that opens the combined score +
+                                // stat sheet (see ScoreStatSheet) instead
+                                // of taking direct keyboard input. Points
+                                // (below) are always read-only either way —
+                                // entry only ever asks for strokes.
+                                <button
+                                  type="button"
+                                  onClick={() => handleCellClick(team.id, playerId, h.number)}
+                                  className={cellClass}
+                                >
+                                  {strokes ?? ""}
+                                </button>
+                              ) : (
+                                <input
+                                  type="number"
+                                  inputMode="numeric"
+                                  min={1}
+                                  max={15}
+                                  value={strokes ?? ""}
+                                  onChange={e => handleChange(team.id, playerId, h.number, e.target.value)}
+                                  className={cellClass}
+                                />
+                              )}
+                              {getsStroke && (
+                                <span
+                                  title="Handicap stroke"
+                                  className="absolute top-[2px] right-[2px] w-[5px] h-[5px] rounded-full bg-sand pointer-events-none"
+                                />
+                              )}
+                            </div>
+                            {stablefordFormat && (
+                              <div
+                                className={`w-[36px] text-center font-mono text-[10px] font-bold leading-tight mt-0.5 ${
+                                  points !== undefined ? stablefordPointsColor(points) : "text-chalk-dim"
+                                }`}
                               >
-                                {strokes ?? ""}
-                              </button>
-                            ) : (
-                              <input
-                                type="number"
-                                inputMode="numeric"
-                                min={1}
-                                max={15}
-                                value={strokes ?? ""}
-                                onChange={e => handleChange(team.id, playerId, h.number, e.target.value)}
-                                className={cellClass}
-                              />
-                            )}
-                            {getsStroke && (
-                              <span
-                                title="Handicap stroke"
-                                className="absolute top-[2px] right-[2px] w-[5px] h-[5px] rounded-full bg-sand pointer-events-none"
-                              />
+                                {points ?? ""}
+                              </div>
                             )}
                           </div>
                         </td>
                       );
                     };
+
+                    // Stacks a Stableford points total under the strokes
+                    // total, same top/bottom pairing as each hole cell —
+                    // only for a player in a Stableford match, otherwise
+                    // this subtotal cell is unchanged from before.
+                    const renderSubtotalCell = (hs: Hole[]) => (
+                      <td className={subtotalCellClass}>
+                        {sumStrokes(playerId, hs) ?? "–"}
+                        {stablefordFormat && (
+                          <div className="text-[10px] font-bold text-chalk-dim leading-tight">
+                            {sumStablefordPoints(playerId, hs, stablefordFormat) ?? "–"}
+                          </div>
+                        )}
+                      </td>
+                    );
 
                     return (
                       <tr key={playerId} className="border-t border-[color:var(--border)]">
@@ -355,14 +462,10 @@ export default function Scorecard({ roundId }: { roundId: string }) {
                           <span className="text-chalk-dim font-mono text-[10px] ml-1">({courseHandicap})</span>
                         </td>
                         {frontHoles.map(renderHoleCell)}
-                        {hasBack && (
-                          <td className={subtotalCellClass}>{sumStrokes(playerId, frontHoles) ?? "–"}</td>
-                        )}
+                        {hasBack && renderSubtotalCell(frontHoles)}
                         {backHoles.map(renderHoleCell)}
-                        {hasBack && (
-                          <td className={subtotalCellClass}>{sumStrokes(playerId, backHoles) ?? "–"}</td>
-                        )}
-                        <td className={subtotalCellClass}>{sumStrokes(playerId, holes) ?? "–"}</td>
+                        {hasBack && renderSubtotalCell(backHoles)}
+                        {renderSubtotalCell(holes)}
                         {trackStats &&
                           (() => {
                             const fh = fairwayStats(playerId);
