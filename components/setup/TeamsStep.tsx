@@ -19,7 +19,21 @@ export const DEFAULT_RYDER_CUP_CONFIG: RyderCupWizardConfig = {
   matches: [],
 };
 
-const PLAYERS_PER_SIDE: Record<RyderCupMatchFormat, number> = { singles: 1, four_ball: 2 };
+// Stableford Net/Gross are individual formats here (1 per side), same
+// as Singles — there's no "Four-Ball Stableford" option requested.
+const PLAYERS_PER_SIDE: Record<RyderCupMatchFormat, number> = {
+  singles: 1,
+  four_ball: 2,
+  stableford_net: 1,
+  stableford_gross: 1,
+};
+
+const MATCH_FORMAT_LABEL: Record<RyderCupMatchFormat, string> = {
+  singles: "Singles",
+  four_ball: "Four-Ball",
+  stableford_net: "Stableford Net",
+  stableford_gross: "Stableford Gross",
+};
 
 function blankMatch(matchNumber: number): RyderCupMatchConfig {
   return {
@@ -251,39 +265,46 @@ export default function TeamsStep({
                     </button>
                   </div>
 
-                  <div className="flex gap-1.5 mb-2.5">
-                    {(["singles", "four_ball"] as RyderCupMatchFormat[]).map(f => (
-                      <button
-                        key={f}
-                        onClick={() =>
-                          updateMatch(match.id, { format: f, teamAPlayerIds: [], teamBPlayerIds: [] })
-                        }
-                        className={`flex-1 text-[12px] font-bold py-1.5 rounded-lg border ${
-                          match.format === f
-                            ? "bg-turf text-fairway-950 border-turf"
-                            : "bg-surface-raised text-chalk-dim border-[color:var(--border)]"
-                        }`}
-                      >
-                        {f === "singles" ? "Singles" : "Four-Ball"}
-                      </button>
-                    ))}
+                  <div className="grid grid-cols-2 gap-1.5 mb-2.5">
+                    {(["singles", "four_ball", "stableford_net", "stableford_gross"] as RyderCupMatchFormat[]).map(
+                      f => (
+                        <button
+                          key={f}
+                          onClick={() =>
+                            updateMatch(match.id, { format: f, teamAPlayerIds: [], teamBPlayerIds: [] })
+                          }
+                          className={`text-[12px] font-bold py-1.5 rounded-lg border ${
+                            match.format === f
+                              ? "bg-turf text-fairway-950 border-turf"
+                              : "bg-surface-raised text-chalk-dim border-[color:var(--border)]"
+                          }`}
+                        >
+                          {MATCH_FORMAT_LABEL[f]}
+                        </button>
+                      )
+                    )}
                   </div>
 
-                  <div className="flex gap-1.5 mb-2.5">
-                    {(["gross", "net"] as RyderCupScoringBasis[]).map(b => (
-                      <button
-                        key={b}
-                        onClick={() => updateMatch(match.id, { scoringBasis: b })}
-                        className={`flex-1 text-[12px] font-bold py-1.5 rounded-lg border ${
-                          match.scoringBasis === b
-                            ? "bg-turf text-fairway-950 border-turf"
-                            : "bg-surface-raised text-chalk-dim border-[color:var(--border)]"
-                        }`}
-                      >
-                        Scoring: {b === "gross" ? "Gross" : "Net"}
-                      </button>
-                    ))}
-                  </div>
+                  {/* Net/Gross is baked into which Stableford format is
+                      picked above — this separate toggle only applies
+                      to Singles/Four-Ball's raw stroke comparison. */}
+                  {match.format !== "stableford_net" && match.format !== "stableford_gross" && (
+                    <div className="flex gap-1.5 mb-2.5">
+                      {(["gross", "net"] as RyderCupScoringBasis[]).map(b => (
+                        <button
+                          key={b}
+                          onClick={() => updateMatch(match.id, { scoringBasis: b })}
+                          className={`flex-1 text-[12px] font-bold py-1.5 rounded-lg border ${
+                            match.scoringBasis === b
+                              ? "bg-turf text-fairway-950 border-turf"
+                              : "bg-surface-raised text-chalk-dim border-[color:var(--border)]"
+                          }`}
+                        >
+                          Scoring: {b === "gross" ? "Gross" : "Net"}
+                        </button>
+                      ))}
+                    </div>
+                  )}
 
                   <div className="flex gap-2.5">
                     {(["A", "B"] as const).map(side => {

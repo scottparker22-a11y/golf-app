@@ -432,8 +432,41 @@ export function calculateRyderCup(scores: HoleScore[], holes: Hole[], config: Ry
 // (Unrelated to RyderCupConfig/calculateRyderCup above, which is a
 // still-unused stub predating both this and the real multi-round
 // Tournament concept below — see calculateTournamentLeaderboard.)
-export type RyderCupMatchFormat = "singles" | "four_ball";
+export type RyderCupMatchFormat = "singles" | "four_ball" | "stableford_net" | "stableford_gross";
 export type RyderCupScoringBasis = "gross" | "net";
+
+// Modified Stableford points table, relative to par per hole — used
+// only by the stableford_net/stableford_gross match formats below
+// (singles/four_ball keep deciding holes by raw/net strokes via
+// ryderCupHoleValue, untouched). A hole-in-one always scores 10, even
+// on a hole where it would otherwise also read as an eagle or better
+// (e.g. an ace on a par 3 is -2 relative to par, which the table
+// would otherwise price as an eagle) — so it's checked first, against
+// the player's actual strokes, before any net adjustment.
+const RYDER_CUP_STABLEFORD_HOLE_IN_ONE = 10;
+const RYDER_CUP_STABLEFORD_TABLE: Record<number, number> = {
+  [-3]: 16, // albatross (or better)
+  [-2]: 8, // eagle
+  [-1]: 4, // birdie
+  [0]: 2, // par
+  [1]: 1, // bogey
+};
+const RYDER_CUP_STABLEFORD_WORSE_THAN_BOGEY = -1; // double bogey or worse
+
+export function ryderCupStablefordPoints(
+  strokes: number,
+  par: number,
+  courseHandicap: number,
+  strokeIndex: number,
+  isNet: boolean
+): number {
+  if (strokes === 1) return RYDER_CUP_STABLEFORD_HOLE_IN_ONE;
+
+  const hole: Hole = { number: 0, par, strokeIndex };
+  const countedStrokes = isNet ? netScore(strokes, hole, courseHandicap) : strokes;
+  const relativeToPar = Math.max(countedStrokes - par, -3); // clamp albatross-or-better into one bucket
+  return RYDER_CUP_STABLEFORD_TABLE[relativeToPar] ?? RYDER_CUP_STABLEFORD_WORSE_THAN_BOGEY;
+}
 
 // Set by the organizer to lock in a result without touching any
 // golfer's actual scores — see calculateRyderCupMatch's override
@@ -498,6 +531,22 @@ function ryderCupHoleValue(
   return scoringBasis === "net" ? netScore(s.strokes, hole, courseHandicaps[playerId] ?? 0) : s.strokes;
 }
 
+// Same "no score yet -> pending" gating as ryderCupHoleValue above,
+// but returns this player's Stableford points on the hole instead of
+// their raw/net strokes — used only for the stableford_net/
+// stableford_gross match formats.
+function ryderCupHoleStablefordValue(
+  scores: HoleScore[],
+  hole: Hole,
+  playerId: string,
+  isNet: boolean,
+  courseHandicaps: Record<string, number>
+): number | null {
+  const s = scores.find(sc => sc.playerId === playerId && sc.holeNumber === hole.number);
+  if (!s) return null;
+  return ryderCupStablefordPoints(s.strokes, hole.par, courseHandicaps[playerId] ?? 0, hole.strokeIndex, isNet);
+}
+
 /**
  * One match's live result. Singles is just the four-ball case with
  * one player per side — the "best of your side" comparison collapses
@@ -527,22 +576,33 @@ export function calculateRyderCupMatch(
       continue;
     }
 
-    const aValues = match.teamAPlayerIds.map(id =>
-      ryderCupHoleValue(scores, hole, id, match.scoringBasis, courseHandicaps)
-    );
-    const bValues = match.teamBPlayerIds.map(id =>
-      ryderCupHoleValue(scores, hole, id, match.scoringBasis, courseHandicaps)
-    );
+    // stableford_net/stableford_gross decide the hole by whichever
+    // side's best Stableford points is HIGHER; singles/four_ball keep
+    // deciding it by whichever side's best raw/net strokes is LOWER.
+    // Either way "best of your side" is just Math.max/Math.min over
+    // however many players are on it — singles is simply the
+    // one-player-per-side case of the same comparison.
+    const isStableford = match.format === "stableford_net" || match.format === "stableford_gross";
+    const aValues = isStableford
+      ? match.teamAPlayerIds.map(id =>
+          ryderCupHoleStablefordValue(scores, hole, id, match.format === "stableford_net", courseHandicaps)
+        )
+      : match.teamAPlayerIds.map(id => ryderCupHoleValue(scores, hole, id, match.scoringBasis, courseHandicaps));
+    const bValues = isStableford
+      ? match.teamBPlayerIds.map(id =>
+          ryderCupHoleStablefordValue(scores, hole, id, match.format === "stableford_net", courseHandicaps)
+        )
+      : match.teamBPlayerIds.map(id => ryderCupHoleValue(scores, hole, id, match.scoringBasis, courseHandicaps));
     if (aValues.some(v => v === null) || bValues.some(v => v === null)) {
       holeResults.push({ hole: hole.number, result: "pending" });
       continue;
     }
 
-    const aScore = Math.min(...(aValues as number[]));
-    const bScore = Math.min(...(bValues as number[]));
+    const aScore = isStableford ? Math.max(...(aValues as number[])) : Math.min(...(aValues as number[]));
+    const bScore = isStableford ? Math.max(...(bValues as number[])) : Math.min(...(bValues as number[]));
     let result: "A" | "B" | "halved";
-    if (aScore < bScore) { margin += 1; result = "A"; }
-    else if (bScore < aScore) { margin -= 1; result = "B"; }
+    if (isStableford ? aScore > bScore : aScore < bScore) { margin += 1; result = "A"; }
+    else if (isStableford ? bScore > aScore : bScore < aScore) { margin -= 1; result = "B"; }
     else { result = "halved"; }
 
     holeResults.push({ hole: hole.number, result });
