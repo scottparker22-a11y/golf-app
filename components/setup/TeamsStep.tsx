@@ -4,11 +4,12 @@ import { useState, type Dispatch, type SetStateAction } from "react";
 import type { Player } from "@/lib/types";
 import {
   RYDER_CUP_MATCH_FORMAT_LABEL,
-  isStablefordFormat,
+  RYDER_CUP_STABLEFORD_SESSION_LABEL,
   type RyderCupGameConfig,
   type RyderCupMatchConfig,
   type RyderCupMatchFormat,
   type RyderCupScoringBasis,
+  type RyderCupStablefordSessionFormat,
 } from "@/lib/scoring";
 
 export type RyderCupWizardConfig = RyderCupGameConfig & { enabled: boolean };
@@ -19,16 +20,12 @@ export const DEFAULT_RYDER_CUP_CONFIG: RyderCupWizardConfig = {
   teamBName: "Europe",
   defaultPointValue: 1,
   matches: [],
+  stablefordSession: null,
 };
 
-// Stableford Net/Gross are individual formats here (1 per side), same
-// as Singles — there's no "Four-Ball Stableford" option requested.
-const PLAYERS_PER_SIDE: Record<RyderCupMatchFormat, number> = {
-  singles: 1,
-  four_ball: 2,
-  stableford_net: 1,
-  stableford_gross: 1,
-};
+const PLAYERS_PER_SIDE: Record<RyderCupMatchFormat, number> = { singles: 1, four_ball: 2 };
+
+const STABLEFORD_SESSION_DEFAULT_POINTS = 4;
 
 
 function blankMatch(matchNumber: number): RyderCupMatchConfig {
@@ -243,6 +240,66 @@ export default function TeamsStep({
         />
       </div>
 
+      <div className="mb-5 p-3 bg-surface border border-[color:var(--border)] rounded-xl">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-chalk-dim mb-1.5">
+          Team Stableford session (optional)
+        </div>
+        <p className="text-[11.5px] text-chalk-dim leading-relaxed mb-2.5">
+          Every player&apos;s Stableford points count toward their team&apos;s total automatically — no
+          matches to build. Whichever team scores more gets the points below added to the Cup.
+        </p>
+        <div className="flex gap-1.5 mb-2.5">
+          <button
+            onClick={() => setRyderCup(prev => ({ ...prev, stablefordSession: null }))}
+            className={`flex-1 text-[12px] font-bold py-1.5 rounded-lg border ${
+              !ryderCup.stablefordSession
+                ? "bg-turf text-fairway-950 border-turf"
+                : "bg-surface-raised text-chalk-dim border-[color:var(--border)]"
+            }`}
+          >
+            Off
+          </button>
+          {(["stableford_net", "stableford_gross"] as RyderCupStablefordSessionFormat[]).map(f => (
+            <button
+              key={f}
+              onClick={() =>
+                setRyderCup(prev => ({
+                  ...prev,
+                  stablefordSession: { format: f, pointValue: prev.stablefordSession?.pointValue ?? STABLEFORD_SESSION_DEFAULT_POINTS },
+                }))
+              }
+              className={`flex-1 text-[12px] font-bold py-1.5 rounded-lg border ${
+                ryderCup.stablefordSession?.format === f
+                  ? "bg-turf text-fairway-950 border-turf"
+                  : "bg-surface-raised text-chalk-dim border-[color:var(--border)]"
+              }`}
+            >
+              {RYDER_CUP_STABLEFORD_SESSION_LABEL[f]}
+            </button>
+          ))}
+        </div>
+        {ryderCup.stablefordSession && (
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-chalk-dim">
+              Points to winning team
+            </span>
+            <input
+              type="number"
+              min={0.5}
+              step="0.5"
+              value={ryderCup.stablefordSession.pointValue}
+              onChange={e => {
+                const value = parseFloat(e.target.value) || 0;
+                setRyderCup(prev =>
+                  prev.stablefordSession ? { ...prev, stablefordSession: { ...prev.stablefordSession, pointValue: value } } : prev
+                );
+              }}
+              className="w-16 bg-surface-raised border border-[color:var(--border-strong)] rounded-lg px-2 py-1.5 text-sm font-mono"
+            />
+          </div>
+        )}
+      </div>
+
       <div className="text-[11px] font-semibold uppercase tracking-wide text-chalk-dim mb-2">Matches</div>
 
       {ryderCup.matches.length === 0 && (
@@ -261,46 +318,37 @@ export default function TeamsStep({
                     </button>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-1.5 mb-2.5">
-                    {(["singles", "four_ball", "stableford_net", "stableford_gross"] as RyderCupMatchFormat[]).map(
-                      f => (
-                        <button
-                          key={f}
-                          onClick={() =>
-                            updateMatch(match.id, { format: f, teamAPlayerIds: [], teamBPlayerIds: [] })
-                          }
-                          className={`text-[12px] font-bold py-1.5 rounded-lg border ${
-                            match.format === f
-                              ? "bg-turf text-fairway-950 border-turf"
-                              : "bg-surface-raised text-chalk-dim border-[color:var(--border)]"
-                          }`}
-                        >
-                          {RYDER_CUP_MATCH_FORMAT_LABEL[f]}
-                        </button>
-                      )
-                    )}
+                  <div className="flex gap-1.5 mb-2.5">
+                    {(["singles", "four_ball"] as RyderCupMatchFormat[]).map(f => (
+                      <button
+                        key={f}
+                        onClick={() => updateMatch(match.id, { format: f, teamAPlayerIds: [], teamBPlayerIds: [] })}
+                        className={`flex-1 text-[12px] font-bold py-1.5 rounded-lg border ${
+                          match.format === f
+                            ? "bg-turf text-fairway-950 border-turf"
+                            : "bg-surface-raised text-chalk-dim border-[color:var(--border)]"
+                        }`}
+                      >
+                        {RYDER_CUP_MATCH_FORMAT_LABEL[f]}
+                      </button>
+                    ))}
                   </div>
 
-                  {/* Net/Gross is baked into which Stableford format is
-                      picked above — this separate toggle only applies
-                      to Singles/Four-Ball's raw stroke comparison. */}
-                  {!isStablefordFormat(match.format) && (
-                    <div className="flex gap-1.5 mb-2.5">
-                      {(["gross", "net"] as RyderCupScoringBasis[]).map(b => (
-                        <button
-                          key={b}
-                          onClick={() => updateMatch(match.id, { scoringBasis: b })}
-                          className={`flex-1 text-[12px] font-bold py-1.5 rounded-lg border ${
-                            match.scoringBasis === b
-                              ? "bg-turf text-fairway-950 border-turf"
-                              : "bg-surface-raised text-chalk-dim border-[color:var(--border)]"
-                          }`}
-                        >
-                          Scoring: {b === "gross" ? "Gross" : "Net"}
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                  <div className="flex gap-1.5 mb-2.5">
+                    {(["gross", "net"] as RyderCupScoringBasis[]).map(b => (
+                      <button
+                        key={b}
+                        onClick={() => updateMatch(match.id, { scoringBasis: b })}
+                        className={`flex-1 text-[12px] font-bold py-1.5 rounded-lg border ${
+                          match.scoringBasis === b
+                            ? "bg-turf text-fairway-950 border-turf"
+                            : "bg-surface-raised text-chalk-dim border-[color:var(--border)]"
+                        }`}
+                      >
+                        Scoring: {b === "gross" ? "Gross" : "Net"}
+                      </button>
+                    ))}
+                  </div>
 
                   <div className="flex gap-2.5">
                     {(["A", "B"] as const).map(side => {

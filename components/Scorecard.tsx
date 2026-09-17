@@ -6,16 +6,14 @@ import {
   approxCourseHandicap,
   calculateTwoManMatchPlay,
   formatTwoManMargin,
-  isStablefordFormat,
   ryderCupStablefordPoints,
   stablefordPointsColor,
   strokesReceived,
   usesPairing,
-  type RyderCupMatchFormat,
   type TwoManMatchPlayResult,
 } from "@/lib/scoring";
 import { useLiveRound } from "@/lib/liveRound";
-import { fetchRyderCupGame } from "@/lib/rounds";
+import { DEMO_TRIP_ID, fetchActiveRyderCupTournament, fetchRyderCupGame } from "@/lib/rounds";
 
 // Same color scale everywhere strokes-relative-to-par shows up on the
 // Scorecard — the grid cells and ScoreStatSheet's Score stepper alike.
@@ -44,18 +42,26 @@ export default function Scorecard({ roundId }: { roundId: string }) {
     useLiveRound(roundId);
 
   // Fetch-once, not live (same pattern as Leaderboard.tsx's skinsConfig)
-  // — just needed to know which players are in a Stableford Ryder Cup
-  // match, and whether it's the net or gross variant, so their grid
-  // cells can show points alongside strokes (see stablefordFormatByPlayer
-  // below). Every other session type/format leaves the grid untouched.
-  const [ryderCupMatches, setRyderCupMatches] = useState<
-    { format: RyderCupMatchFormat; teamAPlayerIds: string[]; teamBPlayerIds: string[] }[]
-  >([]);
+  // — just needed to know whether this round has a team Stableford
+  // session (and which format), and every Cup player's team side, so
+  // every player on either team can show points alongside strokes
+  // (see stablefordFormatByPlayer below) — this is a whole-team
+  // session now, not a handful of players picked into a 1v1 match, so
+  // everyone with a team assignment counts, not just two people.
+  const [stablefordSession, setStablefordSession] = useState<{ format: "stableford_net" | "stableford_gross" } | null>(
+    null
+  );
+  const [teamAssignment, setTeamAssignment] = useState<Record<string, "A" | "B">>({});
   useEffect(() => {
     let cancelled = false;
-    fetchRyderCupGame(roundId)
-      .then(game => {
-        if (!cancelled && game) setRyderCupMatches(game.config.matches);
+    // DEMO_TRIP_ID, not a tripId prop — the trip's real Ryder Cup team
+    // split is keyed by the real trip UUID, never the cosmetic "demo"
+    // URL slug (see lib/rounds.ts and the same fix in Leaderboard.tsx).
+    Promise.all([fetchRyderCupGame(roundId), fetchActiveRyderCupTournament(DEMO_TRIP_ID)])
+      .then(([game, cup]) => {
+        if (cancelled) return;
+        setStablefordSession(game?.config.stablefordSession ?? null);
+        setTeamAssignment(cup?.teamAssignment ?? {});
       })
       .catch(() => {
         // Non-fatal — the grid just stays plain-strokes-only.
@@ -67,14 +73,12 @@ export default function Scorecard({ roundId }: { roundId: string }) {
 
   const stablefordFormatByPlayer = useMemo(() => {
     const map: Record<string, "stableford_net" | "stableford_gross"> = {};
-    for (const match of ryderCupMatches) {
-      if (!isStablefordFormat(match.format)) continue;
-      for (const id of [...match.teamAPlayerIds, ...match.teamBPlayerIds]) {
-        map[id] = match.format as "stableford_net" | "stableford_gross";
-      }
+    if (!stablefordSession) return map;
+    for (const [playerId, side] of Object.entries(teamAssignment)) {
+      if (side === "A" || side === "B") map[playerId] = stablefordSession.format;
     }
     return map;
-  }, [ryderCupMatches]);
+  }, [stablefordSession, teamAssignment]);
 
   const courseHandicaps = useMemo(() => {
     const map: Record<string, number> = {};

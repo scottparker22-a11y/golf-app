@@ -432,29 +432,39 @@ export function calculateRyderCup(scores: HoleScore[], holes: Hole[], config: Ry
 // (Unrelated to RyderCupConfig/calculateRyderCup above, which is a
 // still-unused stub predating both this and the real multi-round
 // Tournament concept below — see calculateTournamentLeaderboard.)
-export type RyderCupMatchFormat = "singles" | "four_ball" | "stableford_net" | "stableford_gross";
+export type RyderCupMatchFormat = "singles" | "four_ball";
 export type RyderCupScoringBasis = "gross" | "net";
 
 // Single source of truth for how each match format is labeled —
 // shared by the match-format picker (components/setup/TeamsStep.tsx)
 // and the match card (components/RyderCupBoard.tsx) so they can't
 // drift out of sync the way a hardcoded `format === "singles" ?
-// "Singles" : "Four-Ball"` ternary silently did for both Stableford
-// formats (defaulted to showing "Four-Ball").
+// "Singles" : "Four-Ball"` ternary silently did once a third format
+// briefly existed here.
 export const RYDER_CUP_MATCH_FORMAT_LABEL: Record<RyderCupMatchFormat, string> = {
   singles: "Singles",
   four_ball: "Four-Ball",
+};
+
+// A whole-team Stableford points shootout — every player on Team A's
+// points (summed across every hole, see calculateRyderCupStablefordSession
+// below) vs. every player on Team B's, NOT a 1-vs-1 match (that's what
+// singles/four_ball above are for). Its own type rather than a
+// RyderCupMatchFormat value: it has no individual participants to pick
+// (every Cup player counts automatically, per the trip's team split —
+// see ActiveRyderCupTournament.teamAssignment) and no hole-by-hole
+// match-play margin/dormie/closed-early concept — just two grand
+// totals compared once, at the end.
+export type RyderCupStablefordSessionFormat = "stableford_net" | "stableford_gross";
+
+export const RYDER_CUP_STABLEFORD_SESSION_LABEL: Record<RyderCupStablefordSessionFormat, string> = {
   stableford_net: "Stableford Net",
   stableford_gross: "Stableford Gross",
 };
 
-export function isStablefordFormat(format: RyderCupMatchFormat): boolean {
-  return format === "stableford_net" || format === "stableford_gross";
-}
-
 // Coarser 3-bucket color scale for a Stableford points value — shared
 // by components/Scorecard.tsx's grid and components/RyderCupBoard.tsx's
-// match table. Deliberately not the same 4-bucket scale relToParClass
+// session table. Deliberately not the same 4-bucket scale relToParClass
 // uses for plain strokes elsewhere (par and bogey share a color here;
 // the points number itself already tells them apart as 2 vs 1).
 export function stablefordPointsColor(points: number): string {
@@ -464,13 +474,13 @@ export function stablefordPointsColor(points: number): string {
 }
 
 // Modified Stableford points table, relative to par per hole — used
-// only by the stableford_net/stableford_gross match formats below
-// (singles/four_ball keep deciding holes by raw/net strokes via
-// ryderCupHoleValue, untouched). A hole-in-one always scores 10, even
-// on a hole where it would otherwise also read as an eagle or better
-// (e.g. an ace on a par 3 is -2 relative to par, which the table
-// would otherwise price as an eagle) — so it's checked first, against
-// the player's actual strokes, before any net adjustment.
+// only by the team Stableford session below (singles/four_ball
+// matches keep deciding holes by raw/net strokes via ryderCupHoleValue,
+// untouched). A hole-in-one always scores 10, even on a hole where it
+// would otherwise also read as an eagle or better (e.g. an ace on a
+// par 3 is -2 relative to par, which the table would otherwise price
+// as an eagle) — so it's checked first, against the player's actual
+// strokes, before any net adjustment.
 const RYDER_CUP_STABLEFORD_HOLE_IN_ONE = 10;
 const RYDER_CUP_STABLEFORD_TABLE: Record<number, number> = {
   [-3]: 16, // albatross (or better)
@@ -516,11 +526,19 @@ export type RyderCupMatchConfig = {
   override?: RyderCupOverride | null;
 };
 
+export type RyderCupStablefordSessionConfig = {
+  format: RyderCupStablefordSessionFormat;
+  /** Points the winning team gets added to the overall Cup score (split evenly on an exact tie). */
+  pointValue: number;
+};
+
 export type RyderCupGameConfig = {
   teamAName: string;
   teamBName: string;
   defaultPointValue: number;
   matches: RyderCupMatchConfig[];
+  /** At most one per round — null/absent means this round has no team Stableford session. */
+  stablefordSession?: RyderCupStablefordSessionConfig | null;
 };
 
 export type RyderCupHoleResult = { hole: number; result: "A" | "B" | "halved" | "pending" };
@@ -559,22 +577,6 @@ function ryderCupHoleValue(
   return scoringBasis === "net" ? netScore(s.strokes, hole, courseHandicaps[playerId] ?? 0) : s.strokes;
 }
 
-// Same "no score yet -> pending" gating as ryderCupHoleValue above,
-// but returns this player's Stableford points on the hole instead of
-// their raw/net strokes — used only for the stableford_net/
-// stableford_gross match formats.
-function ryderCupHoleStablefordValue(
-  scores: HoleScore[],
-  hole: Hole,
-  playerId: string,
-  isNet: boolean,
-  courseHandicaps: Record<string, number>
-): number | null {
-  const s = scores.find(sc => sc.playerId === playerId && sc.holeNumber === hole.number);
-  if (!s) return null;
-  return ryderCupStablefordPoints(s.strokes, hole.par, courseHandicaps[playerId] ?? 0, hole.strokeIndex, isNet);
-}
-
 /**
  * One match's live result. Singles is just the four-ball case with
  * one player per side — the "best of your side" comparison collapses
@@ -604,33 +606,22 @@ export function calculateRyderCupMatch(
       continue;
     }
 
-    // stableford_net/stableford_gross decide the hole by whichever
-    // side's best Stableford points is HIGHER; singles/four_ball keep
-    // deciding it by whichever side's best raw/net strokes is LOWER.
-    // Either way "best of your side" is just Math.max/Math.min over
-    // however many players are on it — singles is simply the
-    // one-player-per-side case of the same comparison.
-    const isStableford = isStablefordFormat(match.format);
-    const aValues = isStableford
-      ? match.teamAPlayerIds.map(id =>
-          ryderCupHoleStablefordValue(scores, hole, id, match.format === "stableford_net", courseHandicaps)
-        )
-      : match.teamAPlayerIds.map(id => ryderCupHoleValue(scores, hole, id, match.scoringBasis, courseHandicaps));
-    const bValues = isStableford
-      ? match.teamBPlayerIds.map(id =>
-          ryderCupHoleStablefordValue(scores, hole, id, match.format === "stableford_net", courseHandicaps)
-        )
-      : match.teamBPlayerIds.map(id => ryderCupHoleValue(scores, hole, id, match.scoringBasis, courseHandicaps));
+    const aValues = match.teamAPlayerIds.map(id =>
+      ryderCupHoleValue(scores, hole, id, match.scoringBasis, courseHandicaps)
+    );
+    const bValues = match.teamBPlayerIds.map(id =>
+      ryderCupHoleValue(scores, hole, id, match.scoringBasis, courseHandicaps)
+    );
     if (aValues.some(v => v === null) || bValues.some(v => v === null)) {
       holeResults.push({ hole: hole.number, result: "pending" });
       continue;
     }
 
-    const aScore = isStableford ? Math.max(...(aValues as number[])) : Math.min(...(aValues as number[]));
-    const bScore = isStableford ? Math.max(...(bValues as number[])) : Math.min(...(bValues as number[]));
+    const aScore = Math.min(...(aValues as number[]));
+    const bScore = Math.min(...(bValues as number[]));
     let result: "A" | "B" | "halved";
-    if (isStableford ? aScore > bScore : aScore < bScore) { margin += 1; result = "A"; }
-    else if (isStableford ? bScore > aScore : bScore < aScore) { margin -= 1; result = "B"; }
+    if (aScore < bScore) { margin += 1; result = "A"; }
+    else if (bScore < aScore) { margin -= 1; result = "B"; }
     else { result = "halved"; }
 
     holeResults.push({ hole: hole.number, result });
@@ -715,6 +706,112 @@ export function formatRyderCupMatchStatus(result: RyderCupMatchResult, teamAName
   return result.status === "dormie" ? `${base} (Dormie)` : base;
 }
 
+export type RyderCupStablefordSessionResult = {
+  format: RyderCupStablefordSessionFormat;
+  playersA: string[];
+  playersB: string[];
+  /** This player's Stableford total so far — undefined if they haven't entered any holes yet. */
+  playerTotals: Record<string, number | undefined>;
+  totalA: number;
+  totalB: number;
+  totalHoles: number;
+  status: "not_started" | "live" | "final";
+  winnerSide: "A" | "B" | "halved" | null;
+  pointValue: number;
+  pointsA: number;
+  pointsB: number;
+};
+
+/**
+ * Whole-team Stableford points shootout — every player on Team A's
+ * Stableford points (summed across every hole they've entered) vs.
+ * every player on Team B's, decided once at the end, not hole by hole
+ * like calculateRyderCupMatch's match play. The winning side gets the
+ * full pointValue, split evenly on an exact tie. Only "final" (points
+ * actually awarded) once every counted player has entered every
+ * hole — same "don't count it until it's decided" rule match play and
+ * Skins both already follow; before that it's "live" with a running
+ * total but zero points awarded yet.
+ */
+export function calculateRyderCupStablefordSession(
+  scores: HoleScore[],
+  holes: Hole[],
+  teamAssignment: Record<string, "A" | "B">,
+  playerIdsInRound: string[],
+  config: RyderCupStablefordSessionConfig,
+  courseHandicaps: Record<string, number>
+): RyderCupStablefordSessionResult {
+  const isNet = config.format === "stableford_net";
+  const totalHoles = holes.length;
+
+  const playersA = playerIdsInRound.filter(id => teamAssignment[id] === "A");
+  const playersB = playerIdsInRound.filter(id => teamAssignment[id] === "B");
+
+  const playerTotals: Record<string, number | undefined> = {};
+  const holesEnteredByPlayer: Record<string, number> = {};
+
+  for (const playerId of [...playersA, ...playersB]) {
+    const courseHandicap = courseHandicaps[playerId] ?? 0;
+    let sum = 0;
+    let entered = 0;
+    for (const h of holes) {
+      const s = scores.find(sc => sc.playerId === playerId && sc.holeNumber === h.number);
+      if (!s) continue;
+      sum += ryderCupStablefordPoints(s.strokes, h.par, courseHandicap, h.strokeIndex, isNet);
+      entered += 1;
+    }
+    holesEnteredByPlayer[playerId] = entered;
+    playerTotals[playerId] = entered > 0 ? sum : undefined;
+  }
+
+  const sumSide = (ids: string[]) => ids.reduce((sum, id) => sum + (playerTotals[id] ?? 0), 0);
+  const totalA = sumSide(playersA);
+  const totalB = sumSide(playersB);
+
+  const anyEntered = Object.values(holesEnteredByPlayer).some(n => n > 0);
+  const allComplete =
+    playersA.length + playersB.length > 0 &&
+    [...playersA, ...playersB].every(id => (holesEnteredByPlayer[id] ?? 0) === totalHoles);
+
+  const status: RyderCupStablefordSessionResult["status"] = allComplete
+    ? "final"
+    : anyEntered
+    ? "live"
+    : "not_started";
+
+  let winnerSide: RyderCupStablefordSessionResult["winnerSide"] = null;
+  let pointsA = 0;
+  let pointsB = 0;
+  if (status === "final") {
+    if (totalA > totalB) {
+      winnerSide = "A";
+      pointsA = config.pointValue;
+    } else if (totalB > totalA) {
+      winnerSide = "B";
+      pointsB = config.pointValue;
+    } else {
+      winnerSide = "halved";
+      pointsA = config.pointValue / 2;
+      pointsB = config.pointValue / 2;
+    }
+  }
+
+  return {
+    format: config.format,
+    playersA,
+    playersB,
+    playerTotals,
+    totalA,
+    totalB,
+    totalHoles,
+    status,
+    winnerSide,
+    pointValue: config.pointValue,
+    pointsA,
+    pointsB,
+  };
+}
+
 export type RyderCupTeamScore = {
   pointsA: number;
   pointsB: number;
@@ -726,13 +823,17 @@ export type RyderCupTeamScore = {
 };
 
 /**
- * Overall Cup score — summed straight from each match's own points,
- * never derived from individual leaderboard position (a golfer can
- * top the Gross leaderboard and still lose their match). The winning
- * threshold is computed off however many points this round's matches
- * are actually worth, never a hard-coded 14.5-style constant.
+ * Overall Cup score — summed straight from each match's own points
+ * plus any team Stableford session's, never derived from individual
+ * leaderboard position (a golfer can top the Gross leaderboard and
+ * still lose their match). The winning threshold is computed off
+ * however many points are actually at stake, never a hard-coded
+ * 14.5-style constant.
  */
-export function calculateRyderCupTeamScore(matchResults: RyderCupMatchResult[]): RyderCupTeamScore {
+export function calculateRyderCupTeamScore(
+  matchResults: RyderCupMatchResult[],
+  stablefordSessions: RyderCupStablefordSessionResult[] = []
+): RyderCupTeamScore {
   let pointsA = 0;
   let pointsB = 0;
   let totalPoints = 0;
@@ -740,6 +841,11 @@ export function calculateRyderCupTeamScore(matchResults: RyderCupMatchResult[]):
     totalPoints += m.pointValue;
     pointsA += m.pointsA;
     pointsB += m.pointsB;
+  }
+  for (const s of stablefordSessions) {
+    totalPoints += s.pointValue;
+    pointsA += s.pointsA;
+    pointsB += s.pointsB;
   }
   const pointsAwarded = pointsA + pointsB;
   const pointsRemaining = Math.max(0, totalPoints - pointsAwarded);

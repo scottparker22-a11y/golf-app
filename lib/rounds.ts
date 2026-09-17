@@ -30,9 +30,11 @@ import type { GolfFormat, Hole, HoleScore, Player } from "./types";
 import {
   approxCourseHandicap,
   calculateRyderCupMatch,
+  calculateRyderCupStablefordSession,
   calculateRyderCupTeamScore,
   type RyderCupGameConfig,
   type RyderCupMatchResult,
+  type RyderCupStablefordSessionResult,
   type RyderCupTeamScore,
   type SkinsGameConfig,
 } from "./scoring";
@@ -757,17 +759,36 @@ export async function fetchRyderCupTeamScoreForTrip(tripId: string): Promise<Ryd
       for (const p of roster) courseHandicaps[p.id] = approxCourseHandicap(p.handicapIndex);
 
       const allResults: RyderCupMatchResult[] = [];
+      const allStablefordSessions: RyderCupStablefordSessionResult[] = [];
       for (const g of games as { round_id: string; config: RyderCupGameConfig }[]) {
         const { holes, scores } = await fetchRoundHolesAndScoresForCup(g.round_id);
         for (const match of g.config.matches) {
           allResults.push(calculateRyderCupMatch(scores, holes, match, courseHandicaps, g.config.defaultPointValue));
         }
+        if (g.config.stablefordSession) {
+          // Whoever actually posted a score for this round — same
+          // "who played" proxy components/RyderCupBoard.tsx uses via
+          // its own round-scoped players prop.
+          const playerIdsInRound = Array.from(
+            new Set(scores.map(s => s.playerId).filter((id): id is string => !!id))
+          );
+          allStablefordSessions.push(
+            calculateRyderCupStablefordSession(
+              scores,
+              holes,
+              activeCup.teamAssignment,
+              playerIdsInRound,
+              g.config.stablefordSession,
+              courseHandicaps
+            )
+          );
+        }
       }
-      if (allResults.length > 0) {
+      if (allResults.length > 0 || allStablefordSessions.length > 0) {
         return {
           teamAName: activeCup.teamAName,
           teamBName: activeCup.teamBName,
-          teamScore: calculateRyderCupTeamScore(allResults),
+          teamScore: calculateRyderCupTeamScore(allResults, allStablefordSessions),
         };
       }
     }
@@ -777,7 +798,7 @@ export async function fetchRyderCupTeamScoreForTrip(tripId: string): Promise<Ryd
   const currentRoundId = await fetchCurrentRoundId(tripId);
   if (!currentRoundId) return null;
   const game = await fetchRyderCupGame(currentRoundId);
-  if (!game || game.config.matches.length === 0) return null;
+  if (!game || (game.config.matches.length === 0 && !game.config.stablefordSession)) return null;
 
   const { holes, scores } = await fetchRoundHolesAndScoresForCup(currentRoundId);
   const roster = await fetchTripRoster(tripId);
@@ -787,6 +808,11 @@ export async function fetchRyderCupTeamScoreForTrip(tripId: string): Promise<Ryd
   const results = game.config.matches.map(m =>
     calculateRyderCupMatch(scores, holes, m, courseHandicaps, game.config.defaultPointValue)
   );
+  // No active Cup entity in this fallback path (that's what got us
+  // here), so there's no trip-wide team_assignment to score a team
+  // Stableford session against — every round set up as Ryder Cup
+  // through the real Setup Wizard flow always has one backing its
+  // team split, so this is a legacy/edge case, not the common path.
   return {
     teamAName: game.config.teamAName,
     teamBName: game.config.teamBName,

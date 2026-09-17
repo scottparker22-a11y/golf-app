@@ -136,13 +136,15 @@ export default function RyderCupSetupPanel({ tripId, roundId }: { tripId: string
       <div className="px-5">
         <button
           onClick={handleSave}
-          disabled={saving || ryderCup.matches.length === 0}
+          disabled={saving || (ryderCup.matches.length === 0 && !ryderCup.stablefordSession)}
           className="w-full py-3.5 rounded-xl bg-turf text-fairway-950 font-bold text-[15px] disabled:opacity-60"
         >
           {saving ? "Saving…" : existingGameId ? "Save changes" : "Save & show on Leaderboard"}
         </button>
-        {ryderCup.matches.length === 0 && (
-          <p className="text-[11.5px] text-chalk-dim text-center mt-2">Add at least one match above first.</p>
+        {ryderCup.matches.length === 0 && !ryderCup.stablefordSession && (
+          <p className="text-[11.5px] text-chalk-dim text-center mt-2">
+            Add at least one match, or turn on the Team Stableford session, above first.
+          </p>
         )}
         <button
           onClick={() => router.push(`/trip/${tripId}/round/${roundId}/leaderboard`)}

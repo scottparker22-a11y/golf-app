@@ -24,7 +24,7 @@ async function createRyderCupGame(
   config: RyderCupGameConfig,
   tournamentId?: string | null
 ): Promise<void> {
-  if (config.matches.length === 0) return;
+  if (config.matches.length === 0 && !config.stablefordSession) return;
   const { error } = await admin
     .from("games")
     .insert({ round_id: roundId, type: "ryder_cup", name: "Ryder Cup", config, tournament_id: tournamentId ?? null });

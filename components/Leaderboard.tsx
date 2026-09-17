@@ -14,6 +14,7 @@ import {
 import GameChips from "./GameChips";
 import { useLiveRound } from "@/lib/liveRound";
 import {
+  DEMO_TRIP_ID,
   fetchActiveRyderCupTournament,
   fetchRyderCupGame,
   fetchRyderCupTeamScoreForTrip,
@@ -38,7 +39,10 @@ export default function Leaderboard({ roundId, tripId }: { roundId: string; trip
   const [ryderCupTripScore, setRyderCupTripScore] = useState<RyderCupTripScore | null>(null);
   useEffect(() => {
     let cancelled = false;
-    fetchRyderCupTeamScoreForTrip(tripId)
+    // DEMO_TRIP_ID, not the tripId prop — that's the "demo" URL slug,
+    // cosmetic only (see lib/rounds.ts), never a real trip_id to query
+    // by. Same fix as the fetchActiveRyderCupTournament call below.
+    fetchRyderCupTeamScoreForTrip(DEMO_TRIP_ID)
       .then(score => {
         if (!cancelled) setRyderCupTripScore(score);
       })
@@ -48,7 +52,7 @@ export default function Leaderboard({ roundId, tripId }: { roundId: string; trip
     return () => {
       cancelled = true;
     };
-  }, [tripId]);
+  }, []);
 
   // Whether THIS round has a Ryder Cup game — gates the third view
   // toggle below (see components/RyderCupBoard.tsx, embedded here
@@ -79,7 +83,9 @@ export default function Leaderboard({ roundId, tripId }: { roundId: string; trip
   const [activeRyderCup, setActiveRyderCup] = useState(false);
   useEffect(() => {
     let cancelled = false;
-    fetchActiveRyderCupTournament(tripId)
+    // DEMO_TRIP_ID, not the tripId prop — see the note on the
+    // fetchRyderCupTeamScoreForTrip call above; same fix.
+    fetchActiveRyderCupTournament(DEMO_TRIP_ID)
       .then(cup => {
         if (!cancelled) setActiveRyderCup(!!cup);
       })
@@ -89,7 +95,7 @@ export default function Leaderboard({ roundId, tripId }: { roundId: string; trip
     return () => {
       cancelled = true;
     };
-  }, [tripId]);
+  }, []);
 
   // This round's actual Skins setup (gross/net on, rollover on/off) —
   // fetch-once, not live, same pattern as the Ryder Cup fetches above.

@@ -1,15 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { fetchRyderCupGame, updateRyderCupGame } from "@/lib/rounds";
+import { DEMO_TRIP_ID, fetchActiveRyderCupTournament, fetchRyderCupGame, updateRyderCupGame } from "@/lib/rounds";
 import type { Hole, HoleScore, Player } from "@/lib/types";
 import {
   RYDER_CUP_MATCH_FORMAT_LABEL,
+  RYDER_CUP_STABLEFORD_SESSION_LABEL,
   approxCourseHandicap,
   calculateIndividualLeaderboard,
   calculateRyderCupMatch,
+  calculateRyderCupStablefordSession,
   formatRyderCupMatchStatus,
-  isStablefordFormat,
   ryderCupStablefordPoints,
   stablefordPointsColor,
   strokesReceived,
@@ -17,6 +18,7 @@ import {
   type RyderCupMatchConfig,
   type RyderCupMatchResult,
   type RyderCupOverride,
+  type RyderCupStablefordSessionResult,
 } from "@/lib/scoring";
 
 type Game = { gameId: string; config: RyderCupGameConfig };
@@ -63,6 +65,11 @@ export default function RyderCupBoard({
 }) {
   const [game, setGame] = useState<Game | null | undefined>(undefined);
   const [gameError, setGameError] = useState<string | null>(null);
+  // Who's on Team A vs B, for the team Stableford session below — the
+  // session has no per-match player picks of its own, it uses the
+  // trip's whole Ryder Cup team split (see
+  // components/setup/TeamsStep.tsx / ActiveRyderCupTournament).
+  const [teamAssignment, setTeamAssignment] = useState<Record<string, "A" | "B">>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -71,6 +78,16 @@ export default function RyderCupBoard({
         if (!cancelled) setGame(g);
       })
       .catch(e => setGameError(e instanceof Error ? e.message : "Couldn't load the Ryder Cup game"));
+    // DEMO_TRIP_ID, not a tripId prop — the trip's real Ryder Cup team
+    // split is keyed by the real trip UUID, never the cosmetic "demo"
+    // URL slug (see lib/rounds.ts and the same fix in Leaderboard.tsx).
+    fetchActiveRyderCupTournament(DEMO_TRIP_ID)
+      .then(cup => {
+        if (!cancelled) setTeamAssignment(cup?.teamAssignment ?? {});
+      })
+      .catch(() => {
+        // Non-fatal — the team Stableford session just won't show.
+      });
     return () => {
       cancelled = true;
     };
@@ -107,6 +124,18 @@ export default function RyderCupBoard({
       calculateRyderCupMatch(holeScores, holes, m, courseHandicaps, game.config.defaultPointValue)
     );
   }, [game, holeScores, holes, courseHandicaps]);
+
+  const stablefordSessionResult = useMemo<RyderCupStablefordSessionResult | null>(() => {
+    if (!game?.config.stablefordSession) return null;
+    return calculateRyderCupStablefordSession(
+      holeScores,
+      holes,
+      teamAssignment,
+      players.map(p => p.id),
+      game.config.stablefordSession,
+      courseHandicaps
+    );
+  }, [game, holeScores, holes, teamAssignment, players, courseHandicaps]);
 
   const saveOverride = async (matchId: string, override: RyderCupOverride | null) => {
     if (!game) return;
@@ -148,6 +177,20 @@ export default function RyderCupBoard({
         <div className="mb-4 p-3 bg-flag/10 border border-flag/30 rounded-xl text-[12.5px] text-flag">{gameError}</div>
       )}
 
+      {stablefordSessionResult && (
+        <Section title="Team Stableford">
+          <TeamStablefordCard
+            result={stablefordSessionResult}
+            teamAName={teamAName}
+            teamBName={teamBName}
+            playerName={playerName}
+            holes={holes}
+            holeScores={holeScores}
+            courseHandicaps={courseHandicaps}
+          />
+        </Section>
+      )}
+
       {live.length > 0 && (
         <Section title="Live matches">
           {live.map(({ match, result }) => (
@@ -161,9 +204,6 @@ export default function RyderCupBoard({
               individual={individual}
               grossRanked={grossRanked}
               netRanked={netRanked}
-              holes={holes}
-              holeScores={holeScores}
-              courseHandicaps={courseHandicaps}
               onOverride={saveOverride}
             />
           ))}
@@ -183,9 +223,6 @@ export default function RyderCupBoard({
               individual={individual}
               grossRanked={grossRanked}
               netRanked={netRanked}
-              holes={holes}
-              holeScores={holeScores}
-              courseHandicaps={courseHandicaps}
               onOverride={saveOverride}
             />
           ))}
@@ -205,9 +242,6 @@ export default function RyderCupBoard({
               individual={individual}
               grossRanked={grossRanked}
               netRanked={netRanked}
-              holes={holes}
-              holeScores={holeScores}
-              courseHandicaps={courseHandicaps}
               onOverride={saveOverride}
             />
           ))}
@@ -235,9 +269,6 @@ function MatchCard({
   individual,
   grossRanked,
   netRanked,
-  holes,
-  holeScores,
-  courseHandicaps,
   onOverride,
 }: {
   match: RyderCupMatchConfig;
@@ -248,9 +279,6 @@ function MatchCard({
   individual: ReturnType<typeof calculateIndividualLeaderboard>;
   grossRanked: { playerId: string; value: number }[];
   netRanked: { playerId: string; value: number }[];
-  holes: Hole[];
-  holeScores: HoleScore[];
-  courseHandicaps: Record<string, number>;
   onOverride: (matchId: string, override: RyderCupOverride | null) => void;
 }) {
   const [expandedPlayerId, setExpandedPlayerId] = useState<string | null>(null);
@@ -258,35 +286,12 @@ function MatchCard({
 
   const statusText = formatRyderCupMatchStatus(result, teamAName, teamBName);
   const formatLabel = RYDER_CUP_MATCH_FORMAT_LABEL[match.format];
-  const isStableford = isStablefordFormat(match.format);
-  const isNet = match.format === "stableford_net";
-
-  // Total Stableford points so far, per player — shown in place of
-  // the usual Gross/Net line for a Stableford match (see PlayerSide).
-  const stablefordTotals = useMemo(() => {
-    if (!isStableford) return {};
-    const totals: Record<string, number> = {};
-    for (const playerId of [...match.teamAPlayerIds, ...match.teamBPlayerIds]) {
-      const ch = courseHandicaps[playerId] ?? 0;
-      let sum = 0;
-      let any = false;
-      for (const h of holes) {
-        const strokes = holeScores.find(s => s.playerId === playerId && s.holeNumber === h.number)?.strokes;
-        if (strokes === undefined) continue;
-        sum += ryderCupStablefordPoints(strokes, h.par, ch, h.strokeIndex, isNet);
-        any = true;
-      }
-      if (any) totals[playerId] = sum;
-    }
-    return totals;
-  }, [isStableford, isNet, match.teamAPlayerIds, match.teamBPlayerIds, holes, holeScores, courseHandicaps]);
 
   return (
     <div className="bg-surface border border-[color:var(--border)] rounded-xl p-3.5">
       <div className="flex items-center justify-between mb-2">
         <div className="text-[11px] font-bold text-chalk-dim">
-          Match {match.matchNumber} — {formatLabel}
-          {!isStableford && ` · Scoring: ${match.scoringBasis === "gross" ? "Gross" : "Net"}`}
+          Match {match.matchNumber} — {formatLabel} · Scoring: {match.scoringBasis === "gross" ? "Gross" : "Net"}
         </div>
         {match.teeTime && result.status === "not_started" && (
           <div className="text-[11px] text-chalk-dim font-mono">{match.teeTime}</div>
@@ -300,7 +305,6 @@ function MatchCard({
           individual={individual}
           grossRanked={grossRanked}
           netRanked={netRanked}
-          stablefordTotals={isStableford ? stablefordTotals : undefined}
           expandedPlayerId={expandedPlayerId}
           setExpandedPlayerId={setExpandedPlayerId}
           statusText={statusText}
@@ -313,7 +317,6 @@ function MatchCard({
           individual={individual}
           grossRanked={grossRanked}
           netRanked={netRanked}
-          stablefordTotals={isStableford ? stablefordTotals : undefined}
           expandedPlayerId={expandedPlayerId}
           setExpandedPlayerId={setExpandedPlayerId}
           statusText={statusText}
@@ -338,21 +341,7 @@ function MatchCard({
         )}
       </div>
 
-      {isStableford
-        ? match.teamAPlayerIds[0] &&
-          match.teamBPlayerIds[0] && (
-            <StablefordHoleTable
-              idA={match.teamAPlayerIds[0]}
-              idB={match.teamBPlayerIds[0]}
-              nameA={playerName(match.teamAPlayerIds[0])}
-              nameB={playerName(match.teamBPlayerIds[0])}
-              isNet={isNet}
-              holes={holes}
-              holeScores={holeScores}
-              courseHandicaps={courseHandicaps}
-            />
-          )
-        : result.holesPlayed > 0 && <HoleStrip result={result} teamAName={teamAName} teamBName={teamBName} />}
+      {result.holesPlayed > 0 && <HoleStrip result={result} teamAName={teamAName} teamBName={teamBName} />}
 
       <div className="mt-2.5 flex items-center justify-between">
         {result.isOverridden ? (
@@ -437,7 +426,6 @@ function PlayerSide({
   individual,
   grossRanked,
   netRanked,
-  stablefordTotals,
   expandedPlayerId,
   setExpandedPlayerId,
   statusText,
@@ -448,8 +436,6 @@ function PlayerSide({
   individual: ReturnType<typeof calculateIndividualLeaderboard>;
   grossRanked: { playerId: string; value: number }[];
   netRanked: { playerId: string; value: number }[];
-  /** Present only for a Stableford match — shown as "N pts" instead of the usual Gross/Net line. */
-  stablefordTotals?: Record<string, number>;
   expandedPlayerId: string | null;
   setExpandedPlayerId: (id: string | null) => void;
   statusText: string;
@@ -468,14 +454,10 @@ function PlayerSide({
             >
               {playerName(id)}
             </button>
-            {stablefordTotals ? (
-              <div className="text-[10.5px] text-chalk-dim font-mono">{stablefordTotals[id] ?? 0} pts</div>
-            ) : (
-              stats && (
-                <div className="text-[10.5px] text-chalk-dim font-mono">
-                  G {formatScore(stats.relativeToPar)} · N {formatScore(stats.netRelativeToPar)}
-                </div>
-              )
+            {stats && (
+              <div className="text-[10.5px] text-chalk-dim font-mono">
+                G {formatScore(stats.relativeToPar)} · N {formatScore(stats.netRelativeToPar)}
+              </div>
             )}
             {expanded && stats && (
               <div
@@ -529,27 +511,106 @@ function HoleStrip({
   );
 }
 
-// Hole-by-hole strokes + Stableford points for a stableford_net/
-// stableford_gross match — replaces HoleStrip's compact win/loss
-// squares (a per-hole A/B/halved result isn't as meaningful a summary
-// here as the actual points are). OUT/IN/TOT subtotals mirror
-// components/Scorecard.tsx's stacked strokes-over-points convention,
-// so the front/back/full-round totals are visible here too, not just
-// PlayerSide's running "N pts" total above.
-function StablefordHoleTable({
-  idA,
-  idB,
-  nameA,
-  nameB,
+// Team USA total points vs. Team Europe total points — the banner
+// that actually decides the session (TeamStablefordTable below is
+// just the breakdown behind those two numbers).
+function TeamStablefordCard({
+  result,
+  teamAName,
+  teamBName,
+  playerName,
+  holes,
+  holeScores,
+  courseHandicaps,
+}: {
+  result: RyderCupStablefordSessionResult;
+  teamAName: string;
+  teamBName: string;
+  playerName: (id: string) => string;
+  holes: Hole[];
+  holeScores: HoleScore[];
+  courseHandicaps: Record<string, number>;
+}) {
+  const leaderSide = result.totalA > result.totalB ? "A" : result.totalB > result.totalA ? "B" : null;
+
+  const statusText =
+    result.status === "not_started"
+      ? "Not started"
+      : result.status === "final"
+      ? result.winnerSide === "halved"
+        ? "Final: Halved"
+        : `Final: ${result.winnerSide === "A" ? teamAName : teamBName} wins`
+      : leaderSide
+      ? `${leaderSide === "A" ? teamAName : teamBName} leads`
+      : "All Square";
+
+  return (
+    <div className="bg-surface border border-[color:var(--border)] rounded-xl p-3.5">
+      <div className="text-[11px] font-bold text-chalk-dim mb-2">
+        {RYDER_CUP_STABLEFORD_SESSION_LABEL[result.format]} · {result.pointValue}{" "}
+        {result.pointValue === 1 ? "point" : "points"} to the winning team
+      </div>
+
+      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 mb-2">
+        <div className="text-left">
+          <div className="text-[13px] font-semibold truncate">{teamAName}</div>
+          <div className="text-[10.5px] text-chalk-dim font-mono">{result.totalA} pts</div>
+        </div>
+        <div className="text-chalk-dim text-[11px] font-semibold">vs</div>
+        <div className="text-right">
+          <div className="text-[13px] font-semibold truncate">{teamBName}</div>
+          <div className="text-[10.5px] text-chalk-dim font-mono">{result.totalB} pts</div>
+        </div>
+      </div>
+
+      <div
+        className={`text-center text-[13px] font-bold py-1.5 rounded-lg ${
+          result.status === "final"
+            ? "bg-surface-raised text-chalk"
+            : leaderSide === "A"
+            ? "bg-turf/15 text-turf"
+            : leaderSide === "B"
+            ? "bg-flag/15 text-flag"
+            : "bg-surface-raised text-chalk-dim"
+        }`}
+      >
+        {statusText}
+      </div>
+
+      <TeamStablefordTable
+        playersA={result.playersA}
+        playersB={result.playersB}
+        playerName={playerName}
+        isNet={result.format === "stableford_net"}
+        holes={holes}
+        holeScores={holeScores}
+        courseHandicaps={courseHandicaps}
+      />
+    </div>
+  );
+}
+
+// Hole-by-hole strokes + Stableford points for every player in the
+// team Stableford session — one row per player (however many are on
+// each side, per the trip's Ryder Cup team split), with a divider
+// between Team A's players and Team B's. OUT/IN/TOT subtotals mirror
+// components/Scorecard.tsx's stacked strokes-over-points convention.
+// The grand totalA/totalB (the numbers that actually decide who wins
+// the session) live in the banner above this table, not repeated as
+// a row here — they're already computed once by
+// calculateRyderCupStablefordSession, no need to sum them again.
+function TeamStablefordTable({
+  playersA,
+  playersB,
+  playerName,
   isNet,
   holes,
   holeScores,
   courseHandicaps,
 }: {
-  idA: string;
-  idB: string;
-  nameA: string;
-  nameB: string;
+  playersA: string[];
+  playersB: string[];
+  playerName: (id: string) => string;
   isNet: boolean;
   holes: Hole[];
   holeScores: HoleScore[];
@@ -605,12 +666,12 @@ function StablefordHoleTable({
     );
   };
 
-  const renderPlayerRow = (playerId: string, name: string) => {
+  const renderPlayerRow = (playerId: string) => {
     const courseHandicap = courseHandicaps[playerId] ?? 0;
     return (
-      <tr>
+      <tr key={playerId}>
         <td className="sticky left-0 z-10 bg-surface pr-2 py-1 font-semibold text-[12px] whitespace-nowrap">
-          {name}
+          {playerName(playerId)}
         </td>
         {frontHoles.map(h => renderHoleCell(playerId, h, courseHandicap))}
         {hasBack && renderSubtotal(playerId, frontHoles, courseHandicap)}
@@ -664,8 +725,14 @@ function StablefordHoleTable({
             </tr>
           </thead>
           <tbody>
-            {renderPlayerRow(idA, nameA)}
-            {renderPlayerRow(idB, nameB)}
+            {playersA.map(renderPlayerRow)}
+            {playersA.length > 0 && playersB.length > 0 && (
+              <tr aria-hidden className="h-2">
+                <td className="sticky left-0 z-10 bg-fairway-950 p-0" />
+                <td colSpan={100} className="bg-fairway-950 p-0" />
+              </tr>
+            )}
+            {playersB.map(renderPlayerRow)}
           </tbody>
         </table>
       </div>
