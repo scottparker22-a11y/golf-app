@@ -6,7 +6,9 @@ import {
   approxCourseHandicap,
   calculateTwoManMatchPlay,
   formatTwoManMargin,
+  isStablefordFormat,
   ryderCupStablefordPoints,
+  stablefordPointsColor,
   strokesReceived,
   usesPairing,
   type RyderCupMatchFormat,
@@ -25,18 +27,6 @@ function relToParClass(strokes: number | undefined, par: number): string {
   return "text-flag";
 }
 
-// Coarser 3-bucket scale for the Stableford points line under each
-// hole's strokes — deliberately not the same 4-bucket scale as
-// relToParClass above (par and bogey share a color here; the points
-// table already tells them apart as 2 vs 1, no need for color to
-// double up on that).
-function stablefordPointsColor(points: number): string {
-  if (points >= 4) return "text-turf"; // birdie or better (a hole-in-one's 10 included)
-  if (points === -1) return "text-flag"; // double bogey or worse
-  return "text-chalk"; // par or bogey
-}
-
-const STABLEFORD_FORMATS: RyderCupMatchFormat[] = ["stableford_net", "stableford_gross"];
 
 export default function Scorecard({ roundId }: { roundId: string }) {
   const [mode, setMode] = useState<"players" | "teams">("players");
@@ -78,7 +68,7 @@ export default function Scorecard({ roundId }: { roundId: string }) {
   const stablefordFormatByPlayer = useMemo(() => {
     const map: Record<string, "stableford_net" | "stableford_gross"> = {};
     for (const match of ryderCupMatches) {
-      if (!STABLEFORD_FORMATS.includes(match.format)) continue;
+      if (!isStablefordFormat(match.format)) continue;
       for (const id of [...match.teamAPlayerIds, ...match.teamBPlayerIds]) {
         map[id] = match.format as "stableford_net" | "stableford_gross";
       }

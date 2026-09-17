@@ -2,11 +2,13 @@
 
 import { useState, type Dispatch, type SetStateAction } from "react";
 import type { Player } from "@/lib/types";
-import type {
-  RyderCupGameConfig,
-  RyderCupMatchConfig,
-  RyderCupMatchFormat,
-  RyderCupScoringBasis,
+import {
+  RYDER_CUP_MATCH_FORMAT_LABEL,
+  isStablefordFormat,
+  type RyderCupGameConfig,
+  type RyderCupMatchConfig,
+  type RyderCupMatchFormat,
+  type RyderCupScoringBasis,
 } from "@/lib/scoring";
 
 export type RyderCupWizardConfig = RyderCupGameConfig & { enabled: boolean };
@@ -28,12 +30,6 @@ const PLAYERS_PER_SIDE: Record<RyderCupMatchFormat, number> = {
   stableford_gross: 1,
 };
 
-const MATCH_FORMAT_LABEL: Record<RyderCupMatchFormat, string> = {
-  singles: "Singles",
-  four_ball: "Four-Ball",
-  stableford_net: "Stableford Net",
-  stableford_gross: "Stableford Gross",
-};
 
 function blankMatch(matchNumber: number): RyderCupMatchConfig {
   return {
@@ -279,7 +275,7 @@ export default function TeamsStep({
                               : "bg-surface-raised text-chalk-dim border-[color:var(--border)]"
                           }`}
                         >
-                          {MATCH_FORMAT_LABEL[f]}
+                          {RYDER_CUP_MATCH_FORMAT_LABEL[f]}
                         </button>
                       )
                     )}
@@ -288,7 +284,7 @@ export default function TeamsStep({
                   {/* Net/Gross is baked into which Stableford format is
                       picked above — this separate toggle only applies
                       to Singles/Four-Ball's raw stroke comparison. */}
-                  {match.format !== "stableford_net" && match.format !== "stableford_gross" && (
+                  {!isStablefordFormat(match.format) && (
                     <div className="flex gap-1.5 mb-2.5">
                       {(["gross", "net"] as RyderCupScoringBasis[]).map(b => (
                         <button

@@ -4,10 +4,15 @@ import { useEffect, useMemo, useState } from "react";
 import { fetchRyderCupGame, updateRyderCupGame } from "@/lib/rounds";
 import type { Hole, HoleScore, Player } from "@/lib/types";
 import {
+  RYDER_CUP_MATCH_FORMAT_LABEL,
   approxCourseHandicap,
   calculateIndividualLeaderboard,
   calculateRyderCupMatch,
   formatRyderCupMatchStatus,
+  isStablefordFormat,
+  ryderCupStablefordPoints,
+  stablefordPointsColor,
+  strokesReceived,
   type RyderCupGameConfig,
   type RyderCupMatchConfig,
   type RyderCupMatchResult,
@@ -156,6 +161,9 @@ export default function RyderCupBoard({
               individual={individual}
               grossRanked={grossRanked}
               netRanked={netRanked}
+              holes={holes}
+              holeScores={holeScores}
+              courseHandicaps={courseHandicaps}
               onOverride={saveOverride}
             />
           ))}
@@ -175,6 +183,9 @@ export default function RyderCupBoard({
               individual={individual}
               grossRanked={grossRanked}
               netRanked={netRanked}
+              holes={holes}
+              holeScores={holeScores}
+              courseHandicaps={courseHandicaps}
               onOverride={saveOverride}
             />
           ))}
@@ -194,6 +205,9 @@ export default function RyderCupBoard({
               individual={individual}
               grossRanked={grossRanked}
               netRanked={netRanked}
+              holes={holes}
+              holeScores={holeScores}
+              courseHandicaps={courseHandicaps}
               onOverride={saveOverride}
             />
           ))}
@@ -221,6 +235,9 @@ function MatchCard({
   individual,
   grossRanked,
   netRanked,
+  holes,
+  holeScores,
+  courseHandicaps,
   onOverride,
 }: {
   match: RyderCupMatchConfig;
@@ -231,19 +248,45 @@ function MatchCard({
   individual: ReturnType<typeof calculateIndividualLeaderboard>;
   grossRanked: { playerId: string; value: number }[];
   netRanked: { playerId: string; value: number }[];
+  holes: Hole[];
+  holeScores: HoleScore[];
+  courseHandicaps: Record<string, number>;
   onOverride: (matchId: string, override: RyderCupOverride | null) => void;
 }) {
   const [expandedPlayerId, setExpandedPlayerId] = useState<string | null>(null);
   const [overrideOpen, setOverrideOpen] = useState(false);
 
   const statusText = formatRyderCupMatchStatus(result, teamAName, teamBName);
-  const formatLabel = match.format === "singles" ? "Singles" : "Four-Ball";
+  const formatLabel = RYDER_CUP_MATCH_FORMAT_LABEL[match.format];
+  const isStableford = isStablefordFormat(match.format);
+  const isNet = match.format === "stableford_net";
+
+  // Total Stableford points so far, per player — shown in place of
+  // the usual Gross/Net line for a Stableford match (see PlayerSide).
+  const stablefordTotals = useMemo(() => {
+    if (!isStableford) return {};
+    const totals: Record<string, number> = {};
+    for (const playerId of [...match.teamAPlayerIds, ...match.teamBPlayerIds]) {
+      const ch = courseHandicaps[playerId] ?? 0;
+      let sum = 0;
+      let any = false;
+      for (const h of holes) {
+        const strokes = holeScores.find(s => s.playerId === playerId && s.holeNumber === h.number)?.strokes;
+        if (strokes === undefined) continue;
+        sum += ryderCupStablefordPoints(strokes, h.par, ch, h.strokeIndex, isNet);
+        any = true;
+      }
+      if (any) totals[playerId] = sum;
+    }
+    return totals;
+  }, [isStableford, isNet, match.teamAPlayerIds, match.teamBPlayerIds, holes, holeScores, courseHandicaps]);
 
   return (
     <div className="bg-surface border border-[color:var(--border)] rounded-xl p-3.5">
       <div className="flex items-center justify-between mb-2">
         <div className="text-[11px] font-bold text-chalk-dim">
-          Match {match.matchNumber} — {formatLabel} · Scoring: {match.scoringBasis === "gross" ? "Gross" : "Net"}
+          Match {match.matchNumber} — {formatLabel}
+          {!isStableford && ` · Scoring: ${match.scoringBasis === "gross" ? "Gross" : "Net"}`}
         </div>
         {match.teeTime && result.status === "not_started" && (
           <div className="text-[11px] text-chalk-dim font-mono">{match.teeTime}</div>
@@ -257,6 +300,7 @@ function MatchCard({
           individual={individual}
           grossRanked={grossRanked}
           netRanked={netRanked}
+          stablefordTotals={isStableford ? stablefordTotals : undefined}
           expandedPlayerId={expandedPlayerId}
           setExpandedPlayerId={setExpandedPlayerId}
           statusText={statusText}
@@ -269,6 +313,7 @@ function MatchCard({
           individual={individual}
           grossRanked={grossRanked}
           netRanked={netRanked}
+          stablefordTotals={isStableford ? stablefordTotals : undefined}
           expandedPlayerId={expandedPlayerId}
           setExpandedPlayerId={setExpandedPlayerId}
           statusText={statusText}
@@ -293,7 +338,21 @@ function MatchCard({
         )}
       </div>
 
-      {result.holesPlayed > 0 && <HoleStrip result={result} teamAName={teamAName} teamBName={teamBName} />}
+      {isStableford
+        ? match.teamAPlayerIds[0] &&
+          match.teamBPlayerIds[0] && (
+            <StablefordHoleTable
+              idA={match.teamAPlayerIds[0]}
+              idB={match.teamBPlayerIds[0]}
+              nameA={playerName(match.teamAPlayerIds[0])}
+              nameB={playerName(match.teamBPlayerIds[0])}
+              isNet={isNet}
+              holes={holes}
+              holeScores={holeScores}
+              courseHandicaps={courseHandicaps}
+            />
+          )
+        : result.holesPlayed > 0 && <HoleStrip result={result} teamAName={teamAName} teamBName={teamBName} />}
 
       <div className="mt-2.5 flex items-center justify-between">
         {result.isOverridden ? (
@@ -378,6 +437,7 @@ function PlayerSide({
   individual,
   grossRanked,
   netRanked,
+  stablefordTotals,
   expandedPlayerId,
   setExpandedPlayerId,
   statusText,
@@ -388,6 +448,8 @@ function PlayerSide({
   individual: ReturnType<typeof calculateIndividualLeaderboard>;
   grossRanked: { playerId: string; value: number }[];
   netRanked: { playerId: string; value: number }[];
+  /** Present only for a Stableford match — shown as "N pts" instead of the usual Gross/Net line. */
+  stablefordTotals?: Record<string, number>;
   expandedPlayerId: string | null;
   setExpandedPlayerId: (id: string | null) => void;
   statusText: string;
@@ -406,10 +468,14 @@ function PlayerSide({
             >
               {playerName(id)}
             </button>
-            {stats && (
-              <div className="text-[10.5px] text-chalk-dim font-mono">
-                G {formatScore(stats.relativeToPar)} · N {formatScore(stats.netRelativeToPar)}
-              </div>
+            {stablefordTotals ? (
+              <div className="text-[10.5px] text-chalk-dim font-mono">{stablefordTotals[id] ?? 0} pts</div>
+            ) : (
+              stats && (
+                <div className="text-[10.5px] text-chalk-dim font-mono">
+                  G {formatScore(stats.relativeToPar)} · N {formatScore(stats.netRelativeToPar)}
+                </div>
+              )
             )}
             {expanded && stats && (
               <div
@@ -460,5 +526,118 @@ function HoleStrip({
         </div>
       ))}
     </div>
+  );
+}
+
+// Hole-by-hole strokes + Stableford points for a stableford_net/
+// stableford_gross match — replaces HoleStrip's compact win/loss
+// squares (a per-hole A/B/halved result isn't as meaningful a summary
+// here as the actual points are). Running totals live in PlayerSide's
+// "N pts" line above this, not repeated as an OUT/IN/TOT row here —
+// keeps this compact enough to sit inside a match card rather than
+// needing the full Scorecard page's width.
+function StablefordHoleTable({
+  idA,
+  idB,
+  nameA,
+  nameB,
+  isNet,
+  holes,
+  holeScores,
+  courseHandicaps,
+}: {
+  idA: string;
+  idB: string;
+  nameA: string;
+  nameB: string;
+  isNet: boolean;
+  holes: Hole[];
+  holeScores: HoleScore[];
+  courseHandicaps: Record<string, number>;
+}) {
+  const strokesFor = (playerId: string, holeNumber: number) =>
+    holeScores.find(s => s.playerId === playerId && s.holeNumber === holeNumber)?.strokes;
+
+  const renderPlayerRow = (playerId: string, name: string) => {
+    const courseHandicap = courseHandicaps[playerId] ?? 0;
+    return (
+      <tr>
+        <td className="sticky left-0 z-10 bg-surface pr-2 py-1 font-semibold text-[12px] whitespace-nowrap">
+          {name}
+        </td>
+        {holes.map(h => {
+          const strokes = strokesFor(playerId, h.number);
+          const points =
+            strokes !== undefined ? ryderCupStablefordPoints(strokes, h.par, courseHandicap, h.strokeIndex, isNet) : undefined;
+          const getsStroke = isNet && strokesReceived(h, courseHandicap) > 0;
+          return (
+            <td key={h.number} className="relative text-center px-1 py-1">
+              {getsStroke && <span className="absolute top-0 right-0.5 w-[5px] h-[5px] rounded-full bg-sand" />}
+              <div className="font-mono font-bold text-[13px] text-chalk">{strokes ?? "–"}</div>
+              <div className={`font-mono text-[11px] font-bold leading-tight ${points !== undefined ? stablefordPointsColor(points) : "text-chalk-dim"}`}>
+                {points ?? ""}
+              </div>
+            </td>
+          );
+        })}
+      </tr>
+    );
+  };
+
+  return (
+    <div className="mt-2.5">
+      <div className="overflow-x-auto -mx-3.5 px-3.5">
+        <table className="border-collapse">
+          <thead>
+            <tr>
+              <th className="sticky left-0 z-10 bg-surface text-left pr-2 py-1 text-chalk-dim font-semibold text-[10px] uppercase whitespace-nowrap">
+                Hole
+              </th>
+              {holes.map(h => (
+                <th key={h.number} className="px-1 py-1 text-chalk-dim font-semibold text-center text-[11px] w-[30px]">
+                  {h.number}
+                </th>
+              ))}
+            </tr>
+            <tr>
+              <th className="sticky left-0 z-10 bg-surface text-left pr-2 py-1 text-chalk-dim font-medium text-[10px] whitespace-nowrap">
+                Par
+              </th>
+              {holes.map(h => (
+                <th key={h.number} className="px-1 py-1 text-chalk-dim font-mono text-center text-[11px]">
+                  {h.par}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {renderPlayerRow(idA, nameA)}
+            {renderPlayerRow(idB, nameB)}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2.5 text-[10.5px] text-chalk-dim">
+        <LegendDot colorClass="bg-turf" label="Birdie+" />
+        <LegendDot colorClass="bg-chalk-dim" label="Par/Bogey" />
+        <LegendDot colorClass="bg-flag" label="Dbl+" />
+        <LegendDot colorClass="bg-sand" label="= stroke hole" />
+      </div>
+
+      <div className="mt-2 p-2.5 bg-surface-raised rounded-lg text-[10.5px] text-chalk-dim leading-relaxed">
+        <span className="font-semibold text-chalk">Top number</span> = strokes entered by the scorekeeper.{" "}
+        <span className="font-semibold text-chalk">Small number below</span> = Stableford points for that hole,
+        colored by outcome. The sand-colored dot marks a hole where that player received a handicap stroke.
+      </div>
+    </div>
+  );
+}
+
+function LegendDot({ colorClass, label }: { colorClass: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className={`w-[7px] h-[7px] rounded-full flex-shrink-0 ${colorClass}`} />
+      {label}
+    </span>
   );
 }

@@ -435,6 +435,34 @@ export function calculateRyderCup(scores: HoleScore[], holes: Hole[], config: Ry
 export type RyderCupMatchFormat = "singles" | "four_ball" | "stableford_net" | "stableford_gross";
 export type RyderCupScoringBasis = "gross" | "net";
 
+// Single source of truth for how each match format is labeled —
+// shared by the match-format picker (components/setup/TeamsStep.tsx)
+// and the match card (components/RyderCupBoard.tsx) so they can't
+// drift out of sync the way a hardcoded `format === "singles" ?
+// "Singles" : "Four-Ball"` ternary silently did for both Stableford
+// formats (defaulted to showing "Four-Ball").
+export const RYDER_CUP_MATCH_FORMAT_LABEL: Record<RyderCupMatchFormat, string> = {
+  singles: "Singles",
+  four_ball: "Four-Ball",
+  stableford_net: "Stableford Net",
+  stableford_gross: "Stableford Gross",
+};
+
+export function isStablefordFormat(format: RyderCupMatchFormat): boolean {
+  return format === "stableford_net" || format === "stableford_gross";
+}
+
+// Coarser 3-bucket color scale for a Stableford points value — shared
+// by components/Scorecard.tsx's grid and components/RyderCupBoard.tsx's
+// match table. Deliberately not the same 4-bucket scale relToParClass
+// uses for plain strokes elsewhere (par and bogey share a color here;
+// the points number itself already tells them apart as 2 vs 1).
+export function stablefordPointsColor(points: number): string {
+  if (points >= 4) return "text-turf"; // birdie or better (a hole-in-one's 10 included)
+  if (points === -1) return "text-flag"; // double bogey or worse
+  return "text-chalk"; // par or bogey
+}
+
 // Modified Stableford points table, relative to par per hole — used
 // only by the stableford_net/stableford_gross match formats below
 // (singles/four_ball keep deciding holes by raw/net strokes via
@@ -582,7 +610,7 @@ export function calculateRyderCupMatch(
     // Either way "best of your side" is just Math.max/Math.min over
     // however many players are on it — singles is simply the
     // one-player-per-side case of the same comparison.
-    const isStableford = match.format === "stableford_net" || match.format === "stableford_gross";
+    const isStableford = isStablefordFormat(match.format);
     const aValues = isStableford
       ? match.teamAPlayerIds.map(id =>
           ryderCupHoleStablefordValue(scores, hole, id, match.format === "stableford_net", courseHandicaps)
