@@ -532,10 +532,10 @@ function HoleStrip({
 // Hole-by-hole strokes + Stableford points for a stableford_net/
 // stableford_gross match — replaces HoleStrip's compact win/loss
 // squares (a per-hole A/B/halved result isn't as meaningful a summary
-// here as the actual points are). Running totals live in PlayerSide's
-// "N pts" line above this, not repeated as an OUT/IN/TOT row here —
-// keeps this compact enough to sit inside a match card rather than
-// needing the full Scorecard page's width.
+// here as the actual points are). OUT/IN/TOT subtotals mirror
+// components/Scorecard.tsx's stacked strokes-over-points convention,
+// so the front/back/full-round totals are visible here too, not just
+// PlayerSide's running "N pts" total above.
 function StablefordHoleTable({
   idA,
   idB,
@@ -555,8 +555,55 @@ function StablefordHoleTable({
   holeScores: HoleScore[];
   courseHandicaps: Record<string, number>;
 }) {
+  const frontHoles = holes.filter(h => h.number <= 9);
+  const backHoles = holes.filter(h => h.number > 9);
+  const hasBack = backHoles.length > 0;
+  const sumPar = (hs: Hole[]) => hs.reduce((sum, h) => sum + h.par, 0);
+
   const strokesFor = (playerId: string, holeNumber: number) =>
     holeScores.find(s => s.playerId === playerId && s.holeNumber === holeNumber)?.strokes;
+
+  const pointsFor = (playerId: string, h: Hole, courseHandicap: number) => {
+    const strokes = strokesFor(playerId, h.number);
+    return strokes === undefined ? undefined : ryderCupStablefordPoints(strokes, h.par, courseHandicap, h.strokeIndex, isNet);
+  };
+
+  const sumStrokes = (playerId: string, hs: Hole[]) => {
+    const entered = hs.map(h => strokesFor(playerId, h.number)).filter((s): s is number => s !== undefined);
+    return entered.length ? entered.reduce((sum, s) => sum + s, 0) : undefined;
+  };
+
+  const sumPoints = (playerId: string, hs: Hole[], courseHandicap: number) => {
+    const entered = hs.map(h => pointsFor(playerId, h, courseHandicap)).filter((p): p is number => p !== undefined);
+    return entered.length ? entered.reduce((sum, p) => sum + p, 0) : undefined;
+  };
+
+  const subtotalCellClass = "px-1.5 py-1 text-center bg-surface-raised border-l border-[color:var(--border-strong)]";
+  const subtotalHeaderClass = subtotalCellClass + " text-chalk-dim font-semibold text-[10px] uppercase";
+
+  const renderSubtotal = (playerId: string, hs: Hole[], courseHandicap: number) => (
+    <td className={subtotalCellClass}>
+      <div className="font-mono font-bold text-[13px] text-chalk">{sumStrokes(playerId, hs) ?? "–"}</div>
+      <div className="font-mono text-[11px] font-bold leading-tight text-chalk-dim">
+        {sumPoints(playerId, hs, courseHandicap) ?? "–"}
+      </div>
+    </td>
+  );
+
+  const renderHoleCell = (playerId: string, h: Hole, courseHandicap: number) => {
+    const strokes = strokesFor(playerId, h.number);
+    const points = pointsFor(playerId, h, courseHandicap);
+    const getsStroke = isNet && strokesReceived(h, courseHandicap) > 0;
+    return (
+      <td key={h.number} className="relative text-center px-1 py-1">
+        {getsStroke && <span className="absolute top-0 right-0.5 w-[5px] h-[5px] rounded-full bg-sand" />}
+        <div className="font-mono font-bold text-[13px] text-chalk">{strokes ?? "–"}</div>
+        <div className={`font-mono text-[11px] font-bold leading-tight ${points !== undefined ? stablefordPointsColor(points) : "text-chalk-dim"}`}>
+          {points ?? ""}
+        </div>
+      </td>
+    );
+  };
 
   const renderPlayerRow = (playerId: string, name: string) => {
     const courseHandicap = courseHandicaps[playerId] ?? 0;
@@ -565,21 +612,11 @@ function StablefordHoleTable({
         <td className="sticky left-0 z-10 bg-surface pr-2 py-1 font-semibold text-[12px] whitespace-nowrap">
           {name}
         </td>
-        {holes.map(h => {
-          const strokes = strokesFor(playerId, h.number);
-          const points =
-            strokes !== undefined ? ryderCupStablefordPoints(strokes, h.par, courseHandicap, h.strokeIndex, isNet) : undefined;
-          const getsStroke = isNet && strokesReceived(h, courseHandicap) > 0;
-          return (
-            <td key={h.number} className="relative text-center px-1 py-1">
-              {getsStroke && <span className="absolute top-0 right-0.5 w-[5px] h-[5px] rounded-full bg-sand" />}
-              <div className="font-mono font-bold text-[13px] text-chalk">{strokes ?? "–"}</div>
-              <div className={`font-mono text-[11px] font-bold leading-tight ${points !== undefined ? stablefordPointsColor(points) : "text-chalk-dim"}`}>
-                {points ?? ""}
-              </div>
-            </td>
-          );
-        })}
+        {frontHoles.map(h => renderHoleCell(playerId, h, courseHandicap))}
+        {hasBack && renderSubtotal(playerId, frontHoles, courseHandicap)}
+        {backHoles.map(h => renderHoleCell(playerId, h, courseHandicap))}
+        {hasBack && renderSubtotal(playerId, backHoles, courseHandicap)}
+        {renderSubtotal(playerId, holes, courseHandicap)}
       </tr>
     );
   };
@@ -593,21 +630,37 @@ function StablefordHoleTable({
               <th className="sticky left-0 z-10 bg-surface text-left pr-2 py-1 text-chalk-dim font-semibold text-[10px] uppercase whitespace-nowrap">
                 Hole
               </th>
-              {holes.map(h => (
+              {frontHoles.map(h => (
                 <th key={h.number} className="px-1 py-1 text-chalk-dim font-semibold text-center text-[11px] w-[30px]">
                   {h.number}
                 </th>
               ))}
+              {hasBack && <th className={subtotalHeaderClass}>Out</th>}
+              {backHoles.map(h => (
+                <th key={h.number} className="px-1 py-1 text-chalk-dim font-semibold text-center text-[11px] w-[30px]">
+                  {h.number}
+                </th>
+              ))}
+              {hasBack && <th className={subtotalHeaderClass}>In</th>}
+              <th className={subtotalHeaderClass}>Tot</th>
             </tr>
             <tr>
               <th className="sticky left-0 z-10 bg-surface text-left pr-2 py-1 text-chalk-dim font-medium text-[10px] whitespace-nowrap">
                 Par
               </th>
-              {holes.map(h => (
+              {frontHoles.map(h => (
                 <th key={h.number} className="px-1 py-1 text-chalk-dim font-mono text-center text-[11px]">
                   {h.par}
                 </th>
               ))}
+              {hasBack && <th className={subtotalCellClass + " font-mono text-[11px]"}>{sumPar(frontHoles)}</th>}
+              {backHoles.map(h => (
+                <th key={h.number} className="px-1 py-1 text-chalk-dim font-mono text-center text-[11px]">
+                  {h.par}
+                </th>
+              ))}
+              {hasBack && <th className={subtotalCellClass + " font-mono text-[11px]"}>{sumPar(backHoles)}</th>}
+              <th className={subtotalCellClass + " font-mono text-[11px]"}>{sumPar(holes)}</th>
             </tr>
           </thead>
           <tbody>
