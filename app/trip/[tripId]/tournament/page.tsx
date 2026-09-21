@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
-import { DEMO_TRIP_ID, fetchActiveTournament, fetchCurrentRoundId } from "@/lib/rounds";
+import { DEMO_TRIP_ID } from "@/lib/rounds";
+import { fetchActiveTournamentServer, fetchCurrentRoundIdServer } from "@/lib/supabaseServer";
 import TournamentLeaderboard from "@/components/TournamentLeaderboard";
 import TripNav from "@/components/TripNav";
 import PageNav from "@/components/PageNav";
@@ -9,14 +10,18 @@ import PageNav from "@/components/PageNav";
 // /leaderboard redirect, just for the cross-round Tournament instead
 // of one round. No active tournament (nothing ever opted into one via
 // components/setup/FormatStep.tsx) sends visitors to Round History.
+// fetchActiveTournamentServer/fetchCurrentRoundIdServer, not
+// lib/rounds.ts's versions — see fetchCurrentRoundIdServer's comment;
+// this is a Server Component, so it needs the cookie-aware client to
+// read with the visitor's own session instead of an anonymous one.
 export default async function TournamentPage({ params }: { params: { tripId: string } }) {
-  const tournament = await fetchActiveTournament(DEMO_TRIP_ID);
+  const tournament = await fetchActiveTournamentServer(DEMO_TRIP_ID);
   if (!tournament) redirect(`/trip/${params.tripId}/rounds`);
 
   // TripNav needs a round to build its round-scoped tab links (Leaderboard,
   // Scorecard, Skins...) — the trip's current round, same as every other
   // trip-level page.
-  const currentRoundId = await fetchCurrentRoundId(DEMO_TRIP_ID);
+  const currentRoundId = await fetchCurrentRoundIdServer(DEMO_TRIP_ID);
 
   return (
     <main className="max-w-[460px] mx-auto min-h-screen pb-10">
