@@ -281,10 +281,23 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
       // Resolve to a concrete tournament id — join the one already
       // detected for the trip, or create a fresh one (see
       // components/setup/FormatStep.tsx for the join/create UI).
+      // Re-checked fresh right here rather than trusting the
+      // activeTournament/activeRyderCup state from this component's
+      // mount: that fetch happened whenever the wizard was first
+      // opened, and if a round was set up (creating one of these) any
+      // time after that without this page fully reloading, the stale
+      // "there's nothing active yet" state would create a SECOND,
+      // duplicate tournament/Cup for the same trip — silently
+      // orphaning every round tied to the first one from the trip-wide
+      // total (they stop being counted together at all, with no error
+      // shown). See the trip's own ryder_cup_tournaments table if this
+      // ever needs a manual repair — only one row per trip should ever
+      // exist.
       let tournamentId: string | null = null;
       if (roundType === "tournament") {
-        tournamentId = activeTournament
-          ? activeTournament.id
+        const freshActiveTournament = await fetchActiveTournament(DEMO_TRIP_ID).catch(() => activeTournament);
+        tournamentId = freshActiveTournament
+          ? freshActiveTournament.id
           : await createTournament(
               DEMO_TRIP_ID,
               tournamentTotalRounds,
@@ -293,9 +306,11 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
             );
       }
       let ryderCupTournamentId: string | null = null;
+      let freshActiveRyderCup: ActiveRyderCupTournament | null = null;
       if (ryderCup.enabled) {
-        ryderCupTournamentId = activeRyderCup
-          ? activeRyderCup.id
+        freshActiveRyderCup = await fetchActiveRyderCupTournament(DEMO_TRIP_ID).catch(() => activeRyderCup);
+        ryderCupTournamentId = freshActiveRyderCup
+          ? freshActiveRyderCup.id
           : await createRyderCupTournament(
               DEMO_TRIP_ID,
               ryderCup.teamAName,
@@ -325,7 +340,7 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
       // for a fresh Cup, so this covers round 1 too), so an in-progress
       // Cup's earlier rounds' locked-in teams are never touched.
       if (ryderCup.enabled && ryderCupTournamentId) {
-        const existingAssignment = activeRyderCup?.teamAssignment ?? {};
+        const existingAssignment = freshActiveRyderCup?.teamAssignment ?? {};
         const newAssignments = Object.fromEntries(
           Object.entries(teamAssignment)
             .map(([localId, side]) => [idMap[localId] ?? localId, side] as const)
