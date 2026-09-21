@@ -2,15 +2,8 @@
 
 import { useState, type Dispatch, type SetStateAction } from "react";
 import type { Player } from "@/lib/types";
-import {
-  RYDER_CUP_MATCH_FORMAT_LABEL,
-  RYDER_CUP_STABLEFORD_SESSION_LABEL,
-  type RyderCupGameConfig,
-  type RyderCupMatchConfig,
-  type RyderCupMatchFormat,
-  type RyderCupScoringBasis,
-  type RyderCupStablefordSessionFormat,
-} from "@/lib/scoring";
+import type { RyderCupGameConfig, RyderCupMatchConfig, RyderCupRoundFormat, RyderCupScoringBasis } from "@/lib/scoring";
+import RyderCupFormatAndPairings from "./RyderCupFormatAndPairings";
 
 export type RyderCupWizardConfig = RyderCupGameConfig & { enabled: boolean };
 
@@ -18,34 +11,17 @@ export const DEFAULT_RYDER_CUP_CONFIG: RyderCupWizardConfig = {
   enabled: false,
   teamAName: "USA",
   teamBName: "Europe",
-  defaultPointValue: 1,
+  format: "singles",
+  scoringBasis: "net",
   matches: [],
-  stablefordSession: null,
 };
-
-const PLAYERS_PER_SIDE: Record<RyderCupMatchFormat, number> = { singles: 1, four_ball: 2 };
-
-const STABLEFORD_SESSION_DEFAULT_POINTS = 4;
-
-
-function blankMatch(matchNumber: number): RyderCupMatchConfig {
-  return {
-    id: crypto.randomUUID(),
-    matchNumber,
-    format: "singles",
-    scoringBasis: "net",
-    teamAPlayerIds: [],
-    teamBPlayerIds: [],
-    teeTime: null,
-    pointValue: null,
-    override: null,
-  };
-}
 
 // Its own tab in the wizard (see SetupWizard.tsx), shown only while
 // roundType === "ryder_cup" — Format.tsx just handles round
-// count/join-detection/course order; this is where teams and matches
-// actually get built.
+// count/join-detection/course order; this is where teams and
+// this round's format/pairings actually get built. Every later round
+// revisits/edits just the format+pairings part on its own screen (see
+// components/RyderCupRoundEditor.tsx) without redoing the team split.
 export default function TeamsStep({
   players,
   assignment,
@@ -96,46 +72,10 @@ export default function TeamsStep({
   const avg = (list: Player[]) =>
     list.length ? (list.reduce((s, p) => s + p.handicapIndex, 0) / list.length).toFixed(1) : "—";
 
-  const updateMatch = (matchId: string, patch: Partial<RyderCupMatchConfig>) => {
-    setRyderCup(prev => ({
-      ...prev,
-      matches: prev.matches.map(m => (m.id === matchId ? { ...m, ...patch } : m)),
-    }));
-  };
-
-  const addMatch = () => {
-    setRyderCup(prev => ({ ...prev, matches: [...prev.matches, blankMatch(prev.matches.length + 1)] }));
-  };
-
-  const removeMatch = (matchId: string) => {
-    setRyderCup(prev => ({
-      ...prev,
-      matches: prev.matches.filter(m => m.id !== matchId).map((m, i) => ({ ...m, matchNumber: i + 1 })),
-    }));
-  };
-
-  // Reads the match to toggle from `prev` inside the updater (not from
-  // the ryderCup closure) — same reasoning as everywhere else here:
-  // toggling two different players in quick succession must each see
-  // the other's change, not both computing off the same stale snapshot.
-  const toggleMatchPlayer = (matchId: string, side: "A" | "B", playerId: string) => {
-    setRyderCup(prev => {
-      const match = prev.matches.find(m => m.id === matchId);
-      if (!match) return prev;
-      const key = side === "A" ? "teamAPlayerIds" : "teamBPlayerIds";
-      const current = match[key];
-      const max = PLAYERS_PER_SIDE[match.format];
-      const next = current.includes(playerId)
-        ? current.filter(id => id !== playerId)
-        : current.length < max
-        ? [...current, playerId]
-        : current;
-      return {
-        ...prev,
-        matches: prev.matches.map(m => (m.id === matchId ? { ...m, [key]: next } : m)),
-      };
-    });
-  };
+  const setFormat = (format: RyderCupRoundFormat) =>
+    setRyderCup(prev => ({ ...prev, format, matches: format === "stableford" ? [] : prev.matches }));
+  const setScoringBasis = (scoringBasis: RyderCupScoringBasis) => setRyderCup(prev => ({ ...prev, scoringBasis }));
+  const setMatches = (matches: RyderCupMatchConfig[]) => setRyderCup(prev => ({ ...prev, matches }));
 
   return (
     <div className="px-5 pt-4">
@@ -223,195 +163,18 @@ export default function TeamsStep({
         </div>
       )}
 
-      <div className="flex items-center gap-2 mb-4">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-chalk-dim">
-          Points per match, by default
-        </span>
-        <input
-          type="number"
-          min={0.5}
-          step="0.5"
-          value={ryderCup.defaultPointValue}
-          onChange={e => {
-            const value = parseFloat(e.target.value) || 0;
-            setRyderCup(prev => ({ ...prev, defaultPointValue: value }));
-          }}
-          className="w-16 bg-surface-raised border border-[color:var(--border-strong)] rounded-lg px-2 py-1.5 text-sm font-mono"
-        />
-      </div>
-
-      <div className="mb-5 p-3 bg-surface border border-[color:var(--border)] rounded-xl">
-        <div className="text-[11px] font-semibold uppercase tracking-wide text-chalk-dim mb-1.5">
-          Team Stableford session (optional)
-        </div>
-        <p className="text-[11.5px] text-chalk-dim leading-relaxed mb-2.5">
-          Every player&apos;s Stableford points count toward their team&apos;s total automatically — no
-          matches to build. Whichever team scores more gets the points below added to the Cup.
-        </p>
-        <div className="flex gap-1.5 mb-2.5">
-          <button
-            onClick={() => setRyderCup(prev => ({ ...prev, stablefordSession: null }))}
-            className={`flex-1 text-[12px] font-bold py-1.5 rounded-lg border ${
-              !ryderCup.stablefordSession
-                ? "bg-turf text-fairway-950 border-turf"
-                : "bg-surface-raised text-chalk-dim border-[color:var(--border)]"
-            }`}
-          >
-            Off
-          </button>
-          {(["stableford_net", "stableford_gross"] as RyderCupStablefordSessionFormat[]).map(f => (
-            <button
-              key={f}
-              onClick={() =>
-                setRyderCup(prev => ({
-                  ...prev,
-                  stablefordSession: { format: f, pointValue: prev.stablefordSession?.pointValue ?? STABLEFORD_SESSION_DEFAULT_POINTS },
-                }))
-              }
-              className={`flex-1 text-[12px] font-bold py-1.5 rounded-lg border ${
-                ryderCup.stablefordSession?.format === f
-                  ? "bg-turf text-fairway-950 border-turf"
-                  : "bg-surface-raised text-chalk-dim border-[color:var(--border)]"
-              }`}
-            >
-              {RYDER_CUP_STABLEFORD_SESSION_LABEL[f]}
-            </button>
-          ))}
-        </div>
-        {ryderCup.stablefordSession && (
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-chalk-dim">
-              Points to winning team
-            </span>
-            <input
-              type="number"
-              min={0.5}
-              step="0.5"
-              value={ryderCup.stablefordSession.pointValue}
-              onChange={e => {
-                const value = parseFloat(e.target.value) || 0;
-                setRyderCup(prev =>
-                  prev.stablefordSession ? { ...prev, stablefordSession: { ...prev.stablefordSession, pointValue: value } } : prev
-                );
-              }}
-              className="w-16 bg-surface-raised border border-[color:var(--border-strong)] rounded-lg px-2 py-1.5 text-sm font-mono"
-            />
-          </div>
-        )}
-      </div>
-
-      <div className="text-[11px] font-semibold uppercase tracking-wide text-chalk-dim mb-2">Matches</div>
-
-      {ryderCup.matches.length === 0 && (
-        <p className="text-[12.5px] text-chalk-dim mb-3">No matches yet — add one below.</p>
-      )}
-
-      <div className="flex flex-col gap-2.5 mb-3">
-        {ryderCup.matches.map(match => {
-              const max = PLAYERS_PER_SIDE[match.format];
-              return (
-                <div key={match.id} className="bg-surface border border-[color:var(--border)] rounded-xl p-3">
-                  <div className="flex items-center justify-between mb-2.5">
-                    <div className="font-display font-extrabold text-[15px]">Match {match.matchNumber}</div>
-                    <button onClick={() => removeMatch(match.id)} className="text-[11px] font-bold text-flag">
-                      Remove
-                    </button>
-                  </div>
-
-                  <div className="flex gap-1.5 mb-2.5">
-                    {(["singles", "four_ball"] as RyderCupMatchFormat[]).map(f => (
-                      <button
-                        key={f}
-                        onClick={() => updateMatch(match.id, { format: f, teamAPlayerIds: [], teamBPlayerIds: [] })}
-                        className={`flex-1 text-[12px] font-bold py-1.5 rounded-lg border ${
-                          match.format === f
-                            ? "bg-turf text-fairway-950 border-turf"
-                            : "bg-surface-raised text-chalk-dim border-[color:var(--border)]"
-                        }`}
-                      >
-                        {RYDER_CUP_MATCH_FORMAT_LABEL[f]}
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="flex gap-1.5 mb-2.5">
-                    {(["gross", "net"] as RyderCupScoringBasis[]).map(b => (
-                      <button
-                        key={b}
-                        onClick={() => updateMatch(match.id, { scoringBasis: b })}
-                        className={`flex-1 text-[12px] font-bold py-1.5 rounded-lg border ${
-                          match.scoringBasis === b
-                            ? "bg-turf text-fairway-950 border-turf"
-                            : "bg-surface-raised text-chalk-dim border-[color:var(--border)]"
-                        }`}
-                      >
-                        Scoring: {b === "gross" ? "Gross" : "Net"}
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="flex gap-2.5">
-                    {(["A", "B"] as const).map(side => {
-                      const roster = side === "A" ? teamA : teamB;
-                      const selected = side === "A" ? match.teamAPlayerIds : match.teamBPlayerIds;
-                      return (
-                        <div key={side} className="flex-1">
-                          <div className="text-[10px] font-bold text-chalk-dim mb-1">
-                            {side === "A" ? ryderCup.teamAName : ryderCup.teamBName} ({selected.length}/{max})
-                          </div>
-                          <div className="flex flex-col gap-1">
-                            {roster.length === 0 && (
-                              <div className="text-[11px] text-chalk-dim italic">No players on this team</div>
-                            )}
-                            {roster.map(p => (
-                              <button
-                                key={p.id}
-                                onClick={() => toggleMatchPlayer(match.id, side, p.id)}
-                                className={`text-[11.5px] font-semibold text-left px-2 py-1.5 rounded-lg border ${
-                                  selected.includes(p.id)
-                                    ? "bg-turf/15 border-turf text-turf"
-                                    : "bg-surface-raised border-[color:var(--border)] text-chalk-dim"
-                                }`}
-                              >
-                                {p.name || "Unnamed"}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  <div className="flex items-center gap-2.5 mt-2.5">
-                    <input
-                      value={match.teeTime ?? ""}
-                      onChange={e => updateMatch(match.id, { teeTime: e.target.value || null })}
-                      placeholder="Tee time (optional)"
-                      className="flex-1 bg-surface-raised border border-[color:var(--border-strong)] rounded-lg px-2.5 py-1.5 text-[12px]"
-                    />
-                    <input
-                      type="number"
-                      min={0.5}
-                      step="0.5"
-                      value={match.pointValue ?? ""}
-                      onChange={e =>
-                        updateMatch(match.id, { pointValue: e.target.value === "" ? null : parseFloat(e.target.value) })
-                      }
-                      placeholder={`${ryderCup.defaultPointValue} pt`}
-                      className="w-[70px] bg-surface-raised border border-[color:var(--border-strong)] rounded-lg px-2.5 py-1.5 text-[12px] font-mono"
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-      <button
-        onClick={addMatch}
-        className="w-full py-2.5 rounded-xl border border-dashed border-[color:var(--border-strong)] text-[12.5px] font-bold text-chalk-dim"
-      >
-        + Add match
-      </button>
+      <RyderCupFormatAndPairings
+        format={ryderCup.format}
+        setFormat={setFormat}
+        scoringBasis={ryderCup.scoringBasis}
+        setScoringBasis={setScoringBasis}
+        matches={ryderCup.matches}
+        setMatches={setMatches}
+        teamAPlayers={teamA}
+        teamBPlayers={teamB}
+        teamAName={ryderCup.teamAName}
+        teamBName={ryderCup.teamBName}
+      />
     </div>
   );
 }

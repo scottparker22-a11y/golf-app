@@ -42,15 +42,14 @@ export default function Scorecard({ roundId }: { roundId: string }) {
     useLiveRound(roundId);
 
   // Fetch-once, not live (same pattern as Leaderboard.tsx's skinsConfig)
-  // — just needed to know whether this round has a team Stableford
-  // session (and which format), and every Cup player's team side, so
+  // — just needed to know whether this round's format is Stableford
+  // (and its scoring basis), and every Cup player's team side, so
   // every player on either team can show points alongside strokes
-  // (see stablefordFormatByPlayer below) — this is a whole-team
-  // session now, not a handful of players picked into a 1v1 match, so
+  // (see stablefordPlayerIds below) — this is a whole-team session
+  // now, not a handful of players picked into a 1v1 match, so
   // everyone with a team assignment counts, not just two people.
-  const [stablefordSession, setStablefordSession] = useState<{ format: "stableford_net" | "stableford_gross" } | null>(
-    null
-  );
+  const [isStablefordRound, setIsStablefordRound] = useState(false);
+  const [isNet, setIsNet] = useState(true);
   const [teamAssignment, setTeamAssignment] = useState<Record<string, "A" | "B">>({});
   useEffect(() => {
     let cancelled = false;
@@ -60,7 +59,8 @@ export default function Scorecard({ roundId }: { roundId: string }) {
     Promise.all([fetchRyderCupGame(roundId), fetchActiveRyderCupTournament(DEMO_TRIP_ID)])
       .then(([game, cup]) => {
         if (cancelled) return;
-        setStablefordSession(game?.config.stablefordSession ?? null);
+        setIsStablefordRound(game?.config.format === "stableford");
+        setIsNet(game?.config.scoringBasis === "net");
         setTeamAssignment(cup?.teamAssignment ?? {});
       })
       .catch(() => {
@@ -71,14 +71,14 @@ export default function Scorecard({ roundId }: { roundId: string }) {
     };
   }, [roundId]);
 
-  const stablefordFormatByPlayer = useMemo(() => {
-    const map: Record<string, "stableford_net" | "stableford_gross"> = {};
-    if (!stablefordSession) return map;
-    for (const [playerId, side] of Object.entries(teamAssignment)) {
-      if (side === "A" || side === "B") map[playerId] = stablefordSession.format;
-    }
-    return map;
-  }, [stablefordSession, teamAssignment]);
+  const stablefordPlayerIds = useMemo(() => {
+    if (!isStablefordRound) return new Set<string>();
+    return new Set(
+      Object.entries(teamAssignment)
+        .filter(([, side]) => side === "A" || side === "B")
+        .map(([playerId]) => playerId)
+    );
+  }, [isStablefordRound, teamAssignment]);
 
   const courseHandicaps = useMemo(() => {
     const map: Record<string, number> = {};
@@ -145,16 +145,16 @@ export default function Scorecard({ roundId }: { roundId: string }) {
   };
 
   // Same idea as sumStrokes, but totals this player's Stableford
-  // points instead — only ever called for a player in a Stableford
-  // Ryder Cup match (see stablefordFormatByPlayer above).
-  const sumStablefordPoints = (playerId: string, hs: Hole[], format: "stableford_net" | "stableford_gross") => {
+  // points instead — only ever called for a player in this round's
+  // Stableford session (see stablefordPlayerIds above).
+  const sumStablefordPoints = (playerId: string, hs: Hole[]) => {
     const courseHandicap = courseHandicapFor(playerId);
     const entered = hs
       .map(h => {
         const strokes = scoreFor(playerId, h.number);
         return strokes === undefined
           ? undefined
-          : ryderCupStablefordPoints(strokes, h.par, courseHandicap, h.strokeIndex, format === "stableford_net");
+          : ryderCupStablefordPoints(strokes, h.par, courseHandicap, h.strokeIndex, isNet);
       })
       .filter((p): p is number => p !== undefined);
     return entered.length ? entered.reduce((sum, p) => sum + p, 0) : undefined;
@@ -352,10 +352,10 @@ export default function Scorecard({ roundId }: { roundId: string }) {
                     const p = players.find(pl => pl.id === playerId);
                     if (!p) return null;
                     const courseHandicap = courseHandicapFor(playerId);
-                    // Set only for a player in a stableford_net/
-                    // stableford_gross Ryder Cup match — everyone else's
-                    // row renders exactly as it always has.
-                    const stablefordFormat = stablefordFormatByPlayer[playerId];
+                    // True only for a player in this round's Stableford
+                    // Ryder Cup session — everyone else's row renders
+                    // exactly as it always has.
+                    const inStableford = stablefordPlayerIds.has(playerId);
 
                     const renderHoleCell = (h: Hole) => {
                       const strokes = scoreFor(playerId, h.number);
@@ -372,14 +372,8 @@ export default function Scorecard({ roundId }: { roundId: string }) {
                           : "border-[color:var(--border-strong)]"
                       }`;
                       const points =
-                        stablefordFormat && strokes !== undefined
-                          ? ryderCupStablefordPoints(
-                              strokes,
-                              h.par,
-                              courseHandicap,
-                              h.strokeIndex,
-                              stablefordFormat === "stableford_net"
-                            )
+                        inStableford && strokes !== undefined
+                          ? ryderCupStablefordPoints(strokes, h.par, courseHandicap, h.strokeIndex, isNet)
                           : undefined;
                       return (
                         <td key={h.number} className="p-0.5">
@@ -420,7 +414,7 @@ export default function Scorecard({ roundId }: { roundId: string }) {
                                 />
                               )}
                             </div>
-                            {stablefordFormat && (
+                            {inStableford && (
                               <div
                                 className={`w-[36px] text-center font-mono text-[10px] font-bold leading-tight mt-0.5 ${
                                   points !== undefined ? stablefordPointsColor(points) : "text-chalk-dim"
@@ -441,9 +435,9 @@ export default function Scorecard({ roundId }: { roundId: string }) {
                     const renderSubtotalCell = (hs: Hole[]) => (
                       <td className={subtotalCellClass}>
                         {sumStrokes(playerId, hs) ?? "–"}
-                        {stablefordFormat && (
+                        {inStableford && (
                           <div className="text-[10px] font-bold text-chalk-dim leading-tight">
-                            {sumStablefordPoints(playerId, hs, stablefordFormat) ?? "–"}
+                            {sumStablefordPoints(playerId, hs) ?? "–"}
                           </div>
                         )}
                       </td>

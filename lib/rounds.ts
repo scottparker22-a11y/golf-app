@@ -34,6 +34,7 @@ import {
   calculateRyderCupTeamScore,
   type RyderCupGameConfig,
   type RyderCupMatchResult,
+  type RyderCupRoundFormat,
   type RyderCupStablefordSessionResult,
   type RyderCupTeamScore,
   type SkinsGameConfig,
@@ -469,6 +470,150 @@ export async function createRoundWithRoster(
   return res.json();
 }
 
+// One physical group per Ryder Cup match — mirrors
+// components/setup/FoursomesStep.tsx's groupsFromRyderCupMatches, just
+// producing RosterGroup (the createRoundWithRoster payload shape)
+// instead of that step's own local Group type, since
+// startRyderCupRound below creates the round directly rather than
+// going through the wizard. A Four-Ball match's 4 players become one
+// Best Ball foursome with the same A/B split already decided; a
+// Singles match's 2 players become their own twosome, plain Stroke
+// Play. Stableford has no matches to build groups from at all — its
+// players just get one plain, unpaired group per four players
+// (pace-of-play only; team scoring doesn't care how they're grouped).
+function rosterGroupsFromRyderCupConfig(config: RyderCupGameConfig, roster: Player[]): RosterGroup[] {
+  const name = (ids: string[]) =>
+    ids
+      .map(id => roster.find(p => p.id === id)?.name.trim())
+      .filter((n): n is string => !!n)
+      .join(" & ") || "Group";
+
+  if (config.format === "stableford") {
+    const rosterIds = roster.map(p => p.id);
+    const groups: RosterGroup[] = [];
+    for (let i = 0; i < rosterIds.length; i += 4) {
+      const ids = rosterIds.slice(i, i + 4);
+      groups.push({ name: name(ids), localPlayerIds: ids, format: "stroke_play", strokePlayTeams: "none", pairings: {} });
+    }
+    return groups;
+  }
+
+  const isFourBall = config.format === "four_ball";
+  return config.matches
+    .filter(m => m.teamAPlayerIds.length > 0 && m.teamBPlayerIds.length > 0)
+    .map(m => {
+      const ids = [...m.teamAPlayerIds, ...m.teamBPlayerIds];
+      const pairings: Record<string, "1" | "2"> = {};
+      if (isFourBall) {
+        m.teamAPlayerIds.forEach(id => (pairings[id] = "1"));
+        m.teamBPlayerIds.forEach(id => (pairings[id] = "2"));
+      }
+      return {
+        name: name(ids),
+        localPlayerIds: ids,
+        format: isFourBall ? "best_ball" : "stroke_play",
+        strokePlayTeams: "none",
+        pairings,
+      };
+    });
+}
+
+/**
+ * Starts a not-yet-created round straight from its Ryder Cup config —
+ * used by the Ryder Cup Rounds screen (components/RyderCupRoundsScreen.tsx)
+ * for a round number that has no `rounds` row yet. Every player is
+ * already a real trip player (there's no "brand new to the trip"
+ * concept here, unlike the general Setup Wizard), so the roster maps
+ * to itself 1:1 — no wizard-local-id remapping needed. Admin-only,
+ * same underlying route as createRoundWithRoster.
+ */
+export async function startRyderCupRound(
+  tripId: string,
+  tournamentId: string,
+  courseId: string,
+  config: RyderCupGameConfig,
+  roster: Player[]
+): Promise<CreateRoundResult> {
+  const players: RosterPlayer[] = roster.map(p => ({
+    localId: p.id,
+    name: p.name,
+    handicapIndex: p.handicapIndex,
+    existingId: p.id,
+  }));
+  const groups = rosterGroupsFromRyderCupConfig(config, roster);
+  return createRoundWithRoster(tripId, courseId, players, groups, null, config, false, null, tournamentId);
+}
+
+export type RyderCupRoundSummary = {
+  roundNumber: number;
+  /** null = this round hasn't been created yet — see startRyderCupRound. */
+  roundId: string | null;
+  status: RoundStatus | null;
+  format: RyderCupRoundFormat | null;
+  /** Has usable pairings (or, for Stableford, needs none) — vs. still needing setup. */
+  configured: boolean;
+};
+
+/**
+ * One card's worth of data per round the Cup is meant to have
+ * (ryder_cup_tournaments.total_rounds), whether or not that round has
+ * actually been created yet — see components/RyderCupRoundsScreen.tsx.
+ * Rounds are ordered by date/created_at, oldest first, to line up with
+ * "round 1", "round 2", etc.
+ */
+export async function fetchRyderCupRounds(
+  tripId: string
+): Promise<{ tournament: ActiveRyderCupTournament; rounds: RyderCupRoundSummary[] } | null> {
+  const tournament = await fetchActiveRyderCupTournament(tripId);
+  if (!tournament) return null;
+
+  const { data: games, error } = await supabase
+    .from("games")
+    .select("round_id, config")
+    .eq("tournament_id", tournament.id)
+    .eq("type", "ryder_cup");
+  if (error) throw new Error(`Couldn't load the Ryder Cup's rounds: ${error.message}`);
+
+  const roundIds = (games ?? []).map(g => g.round_id);
+  const roundsData =
+    roundIds.length > 0
+      ? (
+          await supabase.from("rounds").select("id, status, date, created_at").in("id", roundIds)
+        ).data ?? []
+      : [];
+
+  const merged = (games ?? [])
+    .map(g => ({
+      config: g.config as RyderCupGameConfig,
+      round: roundsData.find(r => r.id === g.round_id) as
+        | { id: string; status: RoundStatus; date: string; created_at: string }
+        | undefined,
+    }))
+    .filter((x): x is { config: RyderCupGameConfig; round: { id: string; status: RoundStatus; date: string; created_at: string } } => !!x.round)
+    .sort((a, b) =>
+      a.round.date === b.round.date
+        ? a.round.created_at.localeCompare(b.round.created_at)
+        : a.round.date.localeCompare(b.round.date)
+    );
+
+  const rounds: RyderCupRoundSummary[] = [];
+  for (let i = 0; i < tournament.totalRounds; i++) {
+    const existing = merged[i];
+    rounds.push(
+      existing
+        ? {
+            roundNumber: i + 1,
+            roundId: existing.round.id,
+            status: existing.round.status,
+            format: existing.config.format,
+            configured: existing.config.format === "stableford" || existing.config.matches.length > 0,
+          }
+        : { roundNumber: i + 1, roundId: null, status: null, format: null, configured: false }
+    );
+  }
+  return { tournament, rounds };
+}
+
 // ── Multi-round Tournament + trip-wide Ryder Cup ─────────────────
 // A Tournament (Stroke Play across several rounds) and a Ryder Cup
 // (match play across several rounds) can each be active on a trip at
@@ -762,10 +907,7 @@ export async function fetchRyderCupTeamScoreForTrip(tripId: string): Promise<Ryd
       const allStablefordSessions: RyderCupStablefordSessionResult[] = [];
       for (const g of games as { round_id: string; config: RyderCupGameConfig }[]) {
         const { holes, scores } = await fetchRoundHolesAndScoresForCup(g.round_id);
-        for (const match of g.config.matches) {
-          allResults.push(calculateRyderCupMatch(scores, holes, match, courseHandicaps, g.config.defaultPointValue));
-        }
-        if (g.config.stablefordSession) {
+        if (g.config.format === "stableford") {
           // Whoever actually posted a score for this round — same
           // "who played" proxy components/RyderCupBoard.tsx uses via
           // its own round-scoped players prop.
@@ -778,10 +920,14 @@ export async function fetchRyderCupTeamScoreForTrip(tripId: string): Promise<Ryd
               holes,
               activeCup.teamAssignment,
               playerIdsInRound,
-              g.config.stablefordSession,
+              g.config.scoringBasis === "net",
               courseHandicaps
             )
           );
+        } else {
+          for (const match of g.config.matches) {
+            allResults.push(calculateRyderCupMatch(scores, holes, match, courseHandicaps, g.config.scoringBasis));
+          }
         }
       }
       if (allResults.length > 0 || allStablefordSessions.length > 0) {
@@ -798,21 +944,23 @@ export async function fetchRyderCupTeamScoreForTrip(tripId: string): Promise<Ryd
   const currentRoundId = await fetchCurrentRoundId(tripId);
   if (!currentRoundId) return null;
   const game = await fetchRyderCupGame(currentRoundId);
-  if (!game || (game.config.matches.length === 0 && !game.config.stablefordSession)) return null;
+  if (!game || (game.config.format !== "stableford" && game.config.matches.length === 0)) return null;
 
   const { holes, scores } = await fetchRoundHolesAndScoresForCup(currentRoundId);
   const roster = await fetchTripRoster(tripId);
   const courseHandicaps: Record<string, number> = {};
   for (const p of roster) courseHandicaps[p.id] = approxCourseHandicap(p.handicapIndex);
 
-  const results = game.config.matches.map(m =>
-    calculateRyderCupMatch(scores, holes, m, courseHandicaps, game.config.defaultPointValue)
-  );
   // No active Cup entity in this fallback path (that's what got us
   // here), so there's no trip-wide team_assignment to score a team
   // Stableford session against — every round set up as Ryder Cup
   // through the real Setup Wizard flow always has one backing its
-  // team split, so this is a legacy/edge case, not the common path.
+  // team split, so a Stableford-format round has nothing to compute
+  // here; this is a legacy/edge case, not the common path.
+  const results =
+    game.config.format === "stableford"
+      ? []
+      : game.config.matches.map(m => calculateRyderCupMatch(scores, holes, m, courseHandicaps, game.config.scoringBasis));
   return {
     teamAName: game.config.teamAName,
     teamBName: game.config.teamBName,

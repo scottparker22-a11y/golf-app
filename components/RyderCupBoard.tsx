@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { DEMO_TRIP_ID, fetchActiveRyderCupTournament, fetchRyderCupGame, updateRyderCupGame } from "@/lib/rounds";
 import type { Hole, HoleScore, Player } from "@/lib/types";
 import {
-  RYDER_CUP_MATCH_FORMAT_LABEL,
-  RYDER_CUP_STABLEFORD_SESSION_LABEL,
+  RYDER_CUP_ROUND_FORMAT_LABEL,
   approxCourseHandicap,
   calculateIndividualLeaderboard,
   calculateRyderCupMatch,
@@ -15,6 +15,8 @@ import {
   type RyderCupMatchConfig,
   type RyderCupMatchResult,
   type RyderCupOverride,
+  type RyderCupRoundFormat,
+  type RyderCupScoringBasis,
   type RyderCupStablefordSessionResult,
 } from "@/lib/scoring";
 
@@ -50,11 +52,13 @@ function rankLabel(sorted: { playerId: string; value: number }[], playerId: stri
 // postgres_changes callbacks... after subscribe()"). Leaderboard.tsx
 // already handles the loading/error states before rendering this.
 export default function RyderCupBoard({
+  tripId,
   roundId,
   players,
   holes,
   holeScores,
 }: {
+  tripId: string;
   roundId: string;
   players: Player[];
   holes: Hole[];
@@ -116,20 +120,20 @@ export default function RyderCupBoard({
   );
 
   const matchResults = useMemo<RyderCupMatchResult[]>(() => {
-    if (!game) return [];
+    if (!game || game.config.format === "stableford") return [];
     return game.config.matches.map(m =>
-      calculateRyderCupMatch(holeScores, holes, m, courseHandicaps, game.config.defaultPointValue)
+      calculateRyderCupMatch(holeScores, holes, m, courseHandicaps, game.config.scoringBasis)
     );
   }, [game, holeScores, holes, courseHandicaps]);
 
   const stablefordSessionResult = useMemo<RyderCupStablefordSessionResult | null>(() => {
-    if (!game?.config.stablefordSession) return null;
+    if (!game || game.config.format !== "stableford") return null;
     return calculateRyderCupStablefordSession(
       holeScores,
       holes,
       teamAssignment,
       players.map(p => p.id),
-      game.config.stablefordSession,
+      game.config.scoringBasis === "net",
       courseHandicaps
     );
   }, [game, holeScores, holes, teamAssignment, players, courseHandicaps]);
@@ -154,8 +158,11 @@ export default function RyderCupBoard({
   if (!game) {
     return (
       <div className="mx-5 mt-4 p-4 bg-surface border border-[color:var(--border)] rounded-xl text-[13px] text-chalk-dim leading-relaxed">
-        Ryder Cup Style isn&apos;t set up for this round. Enable it and build matches from Trip Setup →
-        Format.
+        Ryder Cup Style isn&apos;t set up for this round.{" "}
+        <Link href={`/trip/${tripId}/ryder-cup/rounds`} className="font-bold text-turf underline">
+          Set it up from the Ryder Cup Rounds screen
+        </Link>
+        , or enable it and build matches from Trip Setup → Format.
       </div>
     );
   }
@@ -173,6 +180,12 @@ export default function RyderCupBoard({
       {gameError && (
         <div className="mb-4 p-3 bg-flag/10 border border-flag/30 rounded-xl text-[12.5px] text-flag">{gameError}</div>
       )}
+
+      <div className="flex justify-end mb-2">
+        <Link href={`/trip/${tripId}/ryder-cup/rounds`} className="text-[11px] font-bold text-chalk-dim underline">
+          Manage all rounds →
+        </Link>
+      </div>
 
       {stablefordSessionResult && (
         <Section title="Team Stableford">
@@ -193,6 +206,8 @@ export default function RyderCupBoard({
               key={match.id}
               match={match}
               result={result}
+              format={game.config.format}
+              scoringBasis={game.config.scoringBasis}
               teamAName={teamAName}
               teamBName={teamBName}
               playerName={playerName}
@@ -212,6 +227,8 @@ export default function RyderCupBoard({
               key={match.id}
               match={match}
               result={result}
+              format={game.config.format}
+              scoringBasis={game.config.scoringBasis}
               teamAName={teamAName}
               teamBName={teamBName}
               playerName={playerName}
@@ -231,6 +248,8 @@ export default function RyderCupBoard({
               key={match.id}
               match={match}
               result={result}
+              format={game.config.format}
+              scoringBasis={game.config.scoringBasis}
               teamAName={teamAName}
               teamBName={teamBName}
               playerName={playerName}
@@ -258,6 +277,8 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function MatchCard({
   match,
   result,
+  format,
+  scoringBasis,
   teamAName,
   teamBName,
   playerName,
@@ -268,6 +289,8 @@ function MatchCard({
 }: {
   match: RyderCupMatchConfig;
   result: RyderCupMatchResult;
+  format: RyderCupRoundFormat;
+  scoringBasis: RyderCupScoringBasis;
   teamAName: string;
   teamBName: string;
   playerName: (id: string) => string;
@@ -280,13 +303,13 @@ function MatchCard({
   const [overrideOpen, setOverrideOpen] = useState(false);
 
   const statusText = formatRyderCupMatchStatus(result, teamAName, teamBName);
-  const formatLabel = RYDER_CUP_MATCH_FORMAT_LABEL[match.format];
+  const formatLabel = RYDER_CUP_ROUND_FORMAT_LABEL[format];
 
   return (
     <div className="bg-surface border border-[color:var(--border)] rounded-xl p-3.5">
       <div className="flex items-center justify-between mb-2">
         <div className="text-[11px] font-bold text-chalk-dim">
-          Match {match.matchNumber} — {formatLabel} · Scoring: {match.scoringBasis === "gross" ? "Gross" : "Net"}
+          Match {match.matchNumber} — {formatLabel} · Scoring: {scoringBasis === "gross" ? "Gross" : "Net"}
         </div>
         {match.teeTime && result.status === "not_started" && (
           <div className="text-[11px] text-chalk-dim font-mono">{match.teeTime}</div>
@@ -540,7 +563,7 @@ function TeamStablefordCard({
   return (
     <div className="bg-surface border border-[color:var(--border)] rounded-xl p-3.5">
       <div className="text-[11px] font-bold text-chalk-dim mb-2">
-        {RYDER_CUP_STABLEFORD_SESSION_LABEL[result.format]} · {result.pointValue}{" "}
+        Stableford {result.isNet ? "Net" : "Gross"} · {result.pointValue}{" "}
         {result.pointValue === 1 ? "point" : "points"} to the winning team
       </div>
 

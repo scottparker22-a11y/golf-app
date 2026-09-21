@@ -358,109 +358,38 @@ export function calculateScramble(scores: HoleScore[], holes: Hole[]) {
   return totals;
 }
 
-function teamScoreMatchPlay(scores: HoleScore[], holes: Hole[], sideATeamId: string, sideBTeamId: string) {
-  let status = 0;
-  const holeResults: { hole: number; result: "A" | "B" | "halved" }[] = [];
-
-  for (const hole of holes) {
-    const aScore = scores.find(s => s.teamId === sideATeamId && s.holeNumber === hole.number)?.strokes ?? Infinity;
-    const bScore = scores.find(s => s.teamId === sideBTeamId && s.holeNumber === hole.number)?.strokes ?? Infinity;
-
-    if (aScore < bScore) { status += 1; holeResults.push({ hole: hole.number, result: "A" }); }
-    else if (bScore < aScore) { status -= 1; holeResults.push({ hole: hole.number, result: "B" }); }
-    else { holeResults.push({ hole: hole.number, result: "halved" }); }
-  }
-  return { finalStatus: status, holeResults };
-}
-
-// ── RYDER CUP ─────────────────────────────────────────────────
-export type RyderCupSession = {
-  format: "stroke_play" | "best_ball" | "scramble" | "alt_shot";
-  roundNumber: number;
-  sideA: string[];
-  sideB: string[];
-  sideATeamId?: string;
-  sideBTeamId?: string;
-};
-
-export type RyderCupConfig = {
-  teamAName: string;
-  teamBName: string;
-  totalRounds: number;
-  sessions: RyderCupSession[];
-};
-
-export function calculateRyderCup(scores: HoleScore[], holes: Hole[], config: RyderCupConfig) {
-  let pointsA = 0;
-  let pointsB = 0;
-
-  const sessionResults = config.sessions.map(session => {
-    const result =
-      session.format === "scramble" || session.format === "alt_shot"
-        ? teamScoreMatchPlay(scores, holes, session.sideATeamId!, session.sideBTeamId!)
-        : calculateMatchPlay(scores, holes, { usesHandicap: false, sideA: session.sideA, sideB: session.sideB }, {});
-
-    if (result.finalStatus > 0) pointsA += 1;
-    else if (result.finalStatus < 0) pointsB += 1;
-    else { pointsA += 0.5; pointsB += 0.5; }
-
-    return { format: session.format, roundNumber: session.roundNumber, ...result };
-  });
-
-  const roundsCompleted = new Set(config.sessions.map(s => s.roundNumber)).size;
-  const estSessionsPerRound = config.sessions.length / Math.max(roundsCompleted, 1);
-  const estTotalSessions = estSessionsPerRound * config.totalRounds;
-  const maxRemainingPoints = estTotalSessions - (pointsA + pointsB);
-  const isDecided = pointsA > pointsB + maxRemainingPoints || pointsB > pointsA + maxRemainingPoints;
-
-  return {
-    teamAName: config.teamAName,
-    teamBName: config.teamBName,
-    pointsA,
-    pointsB,
-    roundsCompleted,
-    totalRounds: config.totalRounds,
-    isDecided,
-    sessionResults,
-  };
-}
-
 // ── RYDER CUP MATCH PLAY (round-scoped) ──────────────────────────
 // A second, independent read of the same hole_scores individual
 // strokes already entered on the Scorecard — there is no separate
 // Ryder Cup score entry, and nothing here is precomputed/stored.
-// (Unrelated to RyderCupConfig/calculateRyderCup above, which is a
-// still-unused stub predating both this and the real multi-round
-// Tournament concept below — see calculateTournamentLeaderboard.)
-export type RyderCupMatchFormat = "singles" | "four_ball";
+// One format per round now, chosen once for everybody playing that
+// day (see components/RyderCupRoundEditor.tsx) — Singles and Four-Ball
+// are still individual matches (1v1 / 2v2, decided hole by hole), and
+// Stableford is the whole-team points shootout below; a round is never
+// a mix of these. scoringBasis is likewise one choice for the whole
+// round, applied to whichever format is picked (a match's holes, or
+// the Stableford points table).
+export type RyderCupRoundFormat = "singles" | "four_ball" | "stableford";
 export type RyderCupScoringBasis = "gross" | "net";
 
-// Single source of truth for how each match format is labeled —
-// shared by the match-format picker (components/setup/TeamsStep.tsx)
-// and the match card (components/RyderCupBoard.tsx) so they can't
-// drift out of sync the way a hardcoded `format === "singles" ?
-// "Singles" : "Four-Ball"` ternary silently did once a third format
-// briefly existed here.
-export const RYDER_CUP_MATCH_FORMAT_LABEL: Record<RyderCupMatchFormat, string> = {
+// Single source of truth for how each format is labeled — shared by
+// the format picker (components/RyderCupRoundEditor.tsx) and the
+// match/session cards (components/RyderCupBoard.tsx) so they can't
+// drift out of sync the way a hardcoded ternary silently did once a
+// third format briefly existed here.
+export const RYDER_CUP_ROUND_FORMAT_LABEL: Record<RyderCupRoundFormat, string> = {
   singles: "Singles",
   four_ball: "Four-Ball",
+  stableford: "Stableford",
 };
 
-// A whole-team Stableford points shootout — every player on Team A's
-// points (summed across every hole, see calculateRyderCupStablefordSession
-// below) vs. every player on Team B's, NOT a 1-vs-1 match (that's what
-// singles/four_ball above are for). Its own type rather than a
-// RyderCupMatchFormat value: it has no individual participants to pick
-// (every Cup player counts automatically, per the trip's team split —
-// see ActiveRyderCupTournament.teamAssignment) and no hole-by-hole
-// match-play margin/dormie/closed-early concept — just two grand
-// totals compared once, at the end.
-export type RyderCupStablefordSessionFormat = "stableford_net" | "stableford_gross";
-
-export const RYDER_CUP_STABLEFORD_SESSION_LABEL: Record<RyderCupStablefordSessionFormat, string> = {
-  stableford_net: "Stableford Net",
-  stableford_gross: "Stableford Gross",
-};
+// Fixed by format, never configurable per round or per match/session
+// (see components/RyderCupRoundEditor.tsx's read-only points note) —
+// a decided Stableford session swings the Cup 4x as much as a decided
+// Singles/Four-Ball match. calculateRyderCupTeamScore sums whichever
+// mix of these actually applies without assuming they're equal.
+export const RYDER_CUP_MATCH_POINT_VALUE = 1;
+export const RYDER_CUP_STABLEFORD_POINT_VALUE = 4;
 
 // Coarser 3-bucket color scale for a Stableford points value — shared
 // by components/Scorecard.tsx's grid and components/RyderCupBoard.tsx's
@@ -517,28 +446,19 @@ export type RyderCupOverride = {
 export type RyderCupMatchConfig = {
   id: string;
   matchNumber: number;
-  format: RyderCupMatchFormat;
-  scoringBasis: RyderCupScoringBasis;
   teamAPlayerIds: string[];
   teamBPlayerIds: string[];
   teeTime?: string | null;
-  pointValue?: number | null; // falls back to the game's defaultPointValue
   override?: RyderCupOverride | null;
-};
-
-export type RyderCupStablefordSessionConfig = {
-  format: RyderCupStablefordSessionFormat;
-  /** Points the winning team gets added to the overall Cup score (split evenly on an exact tie). */
-  pointValue: number;
 };
 
 export type RyderCupGameConfig = {
   teamAName: string;
   teamBName: string;
-  defaultPointValue: number;
+  format: RyderCupRoundFormat;
+  scoringBasis: RyderCupScoringBasis;
+  /** Singles/Four-Ball only — always empty when format is "stableford". */
   matches: RyderCupMatchConfig[];
-  /** At most one per round — null/absent means this round has no team Stableford session. */
-  stablefordSession?: RyderCupStablefordSessionConfig | null;
 };
 
 export type RyderCupHoleResult = { hole: number; result: "A" | "B" | "halved" | "pending" };
@@ -587,9 +507,9 @@ export function calculateRyderCupMatch(
   holes: Hole[],
   match: RyderCupMatchConfig,
   courseHandicaps: Record<string, number>,
-  defaultPointValue: number
+  scoringBasis: RyderCupScoringBasis
 ): RyderCupMatchResult {
-  const pointValue = match.pointValue ?? defaultPointValue;
+  const pointValue = RYDER_CUP_MATCH_POINT_VALUE;
   const sortedHoles = [...holes].sort((a, b) => a.number - b.number);
   const totalHoles = sortedHoles.length;
 
@@ -607,10 +527,10 @@ export function calculateRyderCupMatch(
     }
 
     const aValues = match.teamAPlayerIds.map(id =>
-      ryderCupHoleValue(scores, hole, id, match.scoringBasis, courseHandicaps)
+      ryderCupHoleValue(scores, hole, id, scoringBasis, courseHandicaps)
     );
     const bValues = match.teamBPlayerIds.map(id =>
-      ryderCupHoleValue(scores, hole, id, match.scoringBasis, courseHandicaps)
+      ryderCupHoleValue(scores, hole, id, scoringBasis, courseHandicaps)
     );
     if (aValues.some(v => v === null) || bValues.some(v => v === null)) {
       holeResults.push({ hole: hole.number, result: "pending" });
@@ -707,7 +627,7 @@ export function formatRyderCupMatchStatus(result: RyderCupMatchResult, teamAName
 }
 
 export type RyderCupStablefordSessionResult = {
-  format: RyderCupStablefordSessionFormat;
+  isNet: boolean;
   playersA: string[];
   playersB: string[];
   /** This player's Stableford total so far — undefined if they haven't entered any holes yet. */
@@ -738,10 +658,10 @@ export function calculateRyderCupStablefordSession(
   holes: Hole[],
   teamAssignment: Record<string, "A" | "B">,
   playerIdsInRound: string[],
-  config: RyderCupStablefordSessionConfig,
+  isNet: boolean,
   courseHandicaps: Record<string, number>
 ): RyderCupStablefordSessionResult {
-  const isNet = config.format === "stableford_net";
+  const pointValue = RYDER_CUP_STABLEFORD_POINT_VALUE;
   const totalHoles = holes.length;
 
   const playersA = playerIdsInRound.filter(id => teamAssignment[id] === "A");
@@ -785,19 +705,19 @@ export function calculateRyderCupStablefordSession(
   if (status === "final") {
     if (totalA > totalB) {
       winnerSide = "A";
-      pointsA = config.pointValue;
+      pointsA = pointValue;
     } else if (totalB > totalA) {
       winnerSide = "B";
-      pointsB = config.pointValue;
+      pointsB = pointValue;
     } else {
       winnerSide = "halved";
-      pointsA = config.pointValue / 2;
-      pointsB = config.pointValue / 2;
+      pointsA = pointValue / 2;
+      pointsB = pointValue / 2;
     }
   }
 
   return {
-    format: config.format,
+    isNet,
     playersA,
     playersB,
     playerTotals,
@@ -806,7 +726,7 @@ export function calculateRyderCupStablefordSession(
     totalHoles,
     status,
     winnerSide,
-    pointValue: config.pointValue,
+    pointValue,
     pointsA,
     pointsB,
   };
@@ -826,9 +746,14 @@ export type RyderCupTeamScore = {
  * Overall Cup score — summed straight from each match's own points
  * plus any team Stableford session's, never derived from individual
  * leaderboard position (a golfer can top the Gross leaderboard and
- * still lose their match). The winning threshold is computed off
- * however many points are actually at stake, never a hard-coded
- * 14.5-style constant.
+ * still lose their match). totalPoints/pointsRemaining are built from
+ * each result's own pointValue (RYDER_CUP_MATCH_POINT_VALUE or
+ * RYDER_CUP_STABLEFORD_POINT_VALUE, whichever applies), so a Cup mixing
+ * 1-point matches with 4-point Stableford sessions still gets a
+ * correct "can the trailing side still catch up" answer — nothing
+ * here assumes every session is worth the same, and the winning
+ * threshold is computed off however many points are actually at
+ * stake, never a hard-coded 14.5-style constant.
  */
 export function calculateRyderCupTeamScore(
   matchResults: RyderCupMatchResult[],

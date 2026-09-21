@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import type { GolfFormat, Player } from "@/lib/types";
 import { usesPairing } from "@/lib/scoring";
-import type { RyderCupMatchConfig } from "@/lib/scoring";
+import type { RyderCupMatchConfig, RyderCupRoundFormat } from "@/lib/scoring";
 import type { RoundType } from "./SetupWizard";
 
 export type Group = {
@@ -42,11 +42,11 @@ function defaultPairings(ids: string[]): Record<string, "1" | "2"> {
 // players become their own twosome, plain Stroke Play (nothing to
 // team up — it's 1 vs 1). Matches still missing a player on either
 // side are skipped; there's no group to build from an incomplete one.
-function groupsFromRyderCupMatches(matches: RyderCupMatchConfig[]): Group[] {
+function groupsFromRyderCupMatches(matches: RyderCupMatchConfig[], format: RyderCupRoundFormat): Group[] {
   return matches
     .filter(m => m.teamAPlayerIds.length > 0 && m.teamBPlayerIds.length > 0)
     .map(m => {
-      const isFourBall = m.format === "four_ball";
+      const isFourBall = format === "four_ball";
       const pairings: Record<string, "1" | "2"> = {};
       if (isFourBall) {
         m.teamAPlayerIds.forEach(id => (pairings[id] = "1"));
@@ -67,6 +67,7 @@ export default function FoursomesStep({
   groups,
   setGroups,
   roundType,
+  ryderCupFormat,
   ryderCupMatches,
 }: {
   players: Player[];
@@ -74,12 +75,17 @@ export default function FoursomesStep({
   setGroups: (g: Group[]) => void;
   /** See lib/scoring.ts's Ryder Cup types — used to auto-pull groups below when this round is Ryder Cup. */
   roundType: RoundType;
+  ryderCupFormat: RyderCupRoundFormat;
   ryderCupMatches: RyderCupMatchConfig[];
 }) {
   const isRyderCup = roundType === "ryder_cup";
-  const completeRyderCupMatches = ryderCupMatches.filter(
-    m => m.teamAPlayerIds.length > 0 && m.teamBPlayerIds.length > 0
-  );
+  // Stableford has no matches to pull groups from at all — its
+  // pairings are just this round's plain foursomes, same as any
+  // non-Ryder-Cup round.
+  const pullableFromMatches = ryderCupFormat !== "stableford";
+  const completeRyderCupMatches = pullableFromMatches
+    ? ryderCupMatches.filter(m => m.teamAPlayerIds.length > 0 && m.teamBPlayerIds.length > 0)
+    : [];
 
   // Auto-pull the moment there's something to pull and nothing's been
   // built here yet — same "fill in a sensible default, don't clobber
@@ -89,7 +95,7 @@ export default function FoursomesStep({
   // after matches change later.
   useEffect(() => {
     if (isRyderCup && groups.length === 0 && completeRyderCupMatches.length > 0) {
-      setGroups(groupsFromRyderCupMatches(completeRyderCupMatches));
+      setGroups(groupsFromRyderCupMatches(completeRyderCupMatches, ryderCupFormat));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRyderCup, completeRyderCupMatches.length, groups.length]);
@@ -112,7 +118,7 @@ export default function FoursomesStep({
   };
 
   const pullFromRyderCup = () => {
-    setGroups(groupsFromRyderCupMatches(completeRyderCupMatches));
+    setGroups(groupsFromRyderCupMatches(completeRyderCupMatches, ryderCupFormat));
   };
 
   const avgHcp = (ids: string[]) => {

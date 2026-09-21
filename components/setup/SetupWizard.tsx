@@ -437,6 +437,7 @@ export default function SetupWizard({ tripId }: { tripId: string }) {
           groups={groups}
           setGroups={setGroups}
           roundType={roundType}
+          ryderCupFormat={ryderCup.format}
           ryderCupMatches={ryderCup.matches}
         />
       )}

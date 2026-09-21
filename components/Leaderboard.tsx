@@ -303,7 +303,7 @@ export default function Leaderboard({ roundId, tripId }: { roundId: string; trip
       )}
 
       {view === "ryderCup" ? (
-        <RyderCupBoard roundId={roundId} players={players} holes={holes} holeScores={holeScores} />
+        <RyderCupBoard tripId={tripId} roundId={roundId} players={players} holes={holes} holeScores={holeScores} />
       ) : view === "team" ? (
         <div className="px-3 pt-4 pb-1">
           {teamStandings.map((team, i) => (
